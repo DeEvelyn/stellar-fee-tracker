@@ -1,2 +1,2 @@
-pub mod circuit_breaker;
+pub mod backoff;
 pub mod fallback;

@@ -16,7 +16,7 @@ pub fn compute_etag(body: &[u8]) -> String {
         .fold(FNV_OFFSET, |acc, &byte| acc ^ (byte as u64))
         .wrapping_mul(FNV_PRIME);
 
-    format!("\"{:x}\"", hash)
+    format!("{:x}", hash)
 }
 
 /// Build a Cache-Control value using max-age and stale-while-revalidate.

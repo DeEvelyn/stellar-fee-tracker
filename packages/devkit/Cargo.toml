@@ -6,6 +6,9 @@ description = "Developer toolkit for testing and simulating the Stellar fee trac
 
 [dependencies]
 axum = "0.7"
+indicatif = "0.17"
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -15,6 +18,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 tokio-test = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [[bench]]
 name = "fee_model_bench"
@@ -26,4 +31,20 @@ harness = false
 
 [[bench]]
 name = "percentile_bench"
+harness = false
+
+[[bench]]
+name = "main"
+harness = false
+
+[[bench]]
+name = "spike_bench"
+harness = false
+
+[[bench]]
+name = "congestion_bench"
+harness = false
+
+[[bench]]
+name = "fee_polling_bench"
 harness = false
