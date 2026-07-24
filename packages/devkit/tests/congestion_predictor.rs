@@ -61,9 +61,10 @@ fn critical_fee_is_critical() {
 #[test]
 fn congestion_score_scores_for_normal_input() {
     let input = CongestionInput {
-        recent_fee_window: 50_000.0,
+        recent_avg_fee: 50_000.0,
         capacity_usage: 0.1,
-        spike_count: 0,
+        spike_count_1h: 0,
+        trend: "stable".to_string(),
     };
     let score = congestion_score(&input);
     assert!((0.0..=1.0).contains(&score), "score {score} out of [0,1]");
@@ -73,9 +74,10 @@ fn congestion_score_scores_for_normal_input() {
 #[test]
 fn congestion_score_scores_for_rising() {
     let input = CongestionInput {
-        recent_fee_window: 150_000.0,
+        recent_avg_fee: 150_000.0,
         capacity_usage: 0.4,
-        spike_count: 2,
+        spike_count_1h: 2,
+        trend: "rising".to_string(),
     };
     let score = congestion_score(&input);
     assert!(
@@ -88,9 +90,10 @@ fn congestion_score_scores_for_rising() {
 #[test]
 fn congestion_score_scores_for_congested() {
     let input = CongestionInput {
-        recent_fee_window: 300_000.0,
+        recent_avg_fee: 300_000.0,
         capacity_usage: 0.7,
-        spike_count: 5,
+        spike_count_1h: 5,
+        trend: "rising".to_string(),
     };
     let score = congestion_score(&input);
     assert!(
@@ -103,9 +106,10 @@ fn congestion_score_scores_for_congested() {
 #[test]
 fn congestion_score_scores_for_critical() {
     let input = CongestionInput {
-        recent_fee_window: 500_000.0,
+        recent_avg_fee: 500_000.0,
         capacity_usage: 0.95,
-        spike_count: 10,
+        spike_count_1h: 10,
+        trend: "rising".to_string(),
     };
     let score = congestion_score(&input);
     assert!(score > 0.85, "score {score} not in Critical band");
