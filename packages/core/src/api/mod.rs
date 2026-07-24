@@ -1,1 +1,7 @@
-pub mod alerts;\npub mod fees;\npub mod headers;\npub mod health;\npub mod insights;\npub mod recommendation;\n
+pub mod alerts;
+pub mod fees;
+pub mod headers;
+pub mod health;
+pub mod insights;
+pub mod recommendation;
+

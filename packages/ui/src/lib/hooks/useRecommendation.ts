@@ -1,1 +1,47 @@
-"'use client'\n\nimport { useState, useCallback } from 'react'\nimport { api } from '@/lib/api'\nimport type { RecommendResponse, Urgency } from '@/lib/types'\n\ninterface UseRecommendationReturn {\n  recommend: (targetLedgers?: number, urgency?: Urgency, maxFee?: string) => Promise<void>\n  result: RecommendResponse | null\n  loading: boolean\n  error: string | null\n  clear: () => void\n}\n\nexport function useRecommendation(): UseRecommendationReturn {\n  const [result, setResult] = useState<RecommendResponse | null>(null)\n  const [loading, setLoading] = useState(false)\n  const [error, setError] = useState<string | null>(null)\n\n  const recommend = useCallback(\n    async (targetLedgers?: number, urgency?: Urgency, maxFee?: string) => {\n      setLoading(true)\n      setError(null)\n      try {\n        const res = await api.recommend({\n          target_ledgers: targetLedgers,\n          urgency,\n          max_fee: maxFee,\n        })\n        setResult(res)\n      } catch (err) {\n        setError(err instanceof Error ? err.message : 'Failed to get fee recommendation')\n      } finally {\n        setLoading(false)\n      }\n    },\n    [],\n  )\n\n  const clear = useCallback(() => {\n    setResult(null)\n    setError(null)\n  }, [])\n\n  return { recommend, result, loading, error, clear }\n}\n"
+'use client'
+
+import { useState, useCallback } from 'react'
+import { api } from '@/lib/api'
+import type { RecommendResponse, Urgency } from '@/lib/types'
+
+interface UseRecommendationReturn {
+  recommend: (targetLedgers?: number, urgency?: Urgency, maxFee?: string, confidence?: number) => Promise<void>
+  result: RecommendResponse | null
+  loading: boolean
+  error: string | null
+  clear: () => void
+}
+
+export function useRecommendation(): UseRecommendationReturn {
+  const [result, setResult] = useState<RecommendResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const recommend = useCallback(
+    async (targetLedgers?: number, urgency?: Urgency, maxFee?: string, confidence?: number) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await api.recommend({
+          target_ledgers: targetLedgers,
+          urgency,
+          max_fee: maxFee,
+          confidence: confidence !== undefined ? confidence / 100 : undefined,
+        })
+        setResult(res)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to get fee recommendation')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  const clear = useCallback(() => {
+    setResult(null)
+    setError(null)
+  }, [])
+
+  return { recommend, result, loading, error, clear }
+}

@@ -1,1 +1,62 @@
-use std::sync::Arc;\n\nuse axum::{\n    extract::State,\n    Json,\n};\n\nuse crate::error::AppError;\nuse crate::metrics::AppMetrics;\nuse crate::middleware::validation::validate_recommend_request;\nuse crate::recommendation::engine::FeeRecommendationEngine;\nuse crate::recommendation::types::{RecommendHistoryResponse, RecommendRequest, RecommendResponse};\n\npub type RecommendationState = Arc<RecommendationApiState>;\n\npub struct RecommendationApiState {\n    pub engine: FeeRecommendationEngine,\n    pub metrics: Option<Arc<AppMetrics>>,\n}\n\npub async fn recommend(\n    State(state): State<RecommendationState>,\n    Json(body): Json<RecommendRequest>,\n) -> Result<Json<RecommendResponse>, AppError> {\n    validate_recommend_request(&body).map_err(|(status, err_json)| {\n        AppError::Parse(err_json["error"].as_str().unwrap_or("Validation error").to_string())\n    })?;\n\n    let result = state.engine.recommend(&body).await?;\n\n    if let Some(metrics) = &state.metrics {\n        metrics.recommendations_total.inc();\n    }\n\n    Ok(Json(result))\n}\n\npub async fn recommend_history(\n    State(_state): State<RecommendationState>,\n) -> Result<Json<RecommendHistoryResponse>, AppError> {\n    let response = RecommendHistoryResponse { entries: vec![] };\n    Ok(Json(response))\n}\n
+use std::sync::Arc;
+
+use axum::{
+    extract::State,
+    Json,
+};
+
+use crate::error::AppError;
+use crate::metrics::AppMetrics;
+use crate::middleware::validation::validate_recommend_request;
+use crate::recommendation::engine::FeeRecommendationEngine;
+use crate::recommendation::types::{RecommendHistoryResponse, RecommendRequest, RecommendResponse};
+
+pub type RecommendationState = Arc<RecommendationApiState>;
+
+pub struct RecommendationApiState {
+    pub engine: FeeRecommendationEngine,
+    pub metrics: Option<Arc<AppMetrics>>,
+}
+
+pub async fn recommend(
+    State(state): State<RecommendationState>,
+    Json(body): Json<RecommendRequest>,
+) -> Result<Json<RecommendResponse>, AppError> {
+    validate_recommend_request(&body).map_err(|(status, err_json)| {
+        AppError::Parse(err_json["error"].as_str().unwrap_or("Validation error").to_string())
+    })?;
+
+    let result = state.engine.recommend(&body).await?;
+
+    if let Some(metrics) = &state.metrics {
+        metrics.recommendations_total.inc();
+    }
+
+    Ok(Json(result))
+}
+
+pub async fn get_recommend(
+    State(state): State<RecommendationState>,
+) -> Result<Json<RecommendResponse>, AppError> {
+    let request = RecommendRequest {
+        target_ledgers: Some(2),
+        urgency: None,
+        max_fee: None,
+    };
+
+    let result = state.engine.recommend(&request).await?;
+
+    if let Some(metrics) = &state.metrics {
+        metrics.recommendations_total.inc();
+    }
+
+    Ok(Json(result))
+}
+
+pub async fn recommend_history(
+    State(_state): State<RecommendationState>,
+) -> Result<Json<RecommendHistoryResponse>, AppError> {
+    let response = RecommendHistoryResponse { entries: vec![] };
+    Ok(Json(response))
+}
+

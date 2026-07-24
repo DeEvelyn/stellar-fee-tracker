@@ -1,1 +1,24 @@
-// Library root \u2014 exposes internal modules for integration tests in .\n// Production entry point remains .\n\npub mod alerts;\npub mod api;\npub mod cache;\npub mod db;\npub mod error;\npub mod insights;\npub mod metrics;\npub mod middleware;\npub mod recommendation;\npub mod repository;\npub mod scheduler;\npub mod services;\npub mod store;\n\n// These modules are only needed by the binary.\n// Declared pub so integration tests can reach them if needed, but they\n// contain no logic of interest to tests.\npub mod cli;\npub mod config;\npub mod logging;\n
+// Library root \u2014 exposes internal modules for integration tests in .
+// Production entry point remains .
+
+pub mod alerts;
+pub mod api;
+pub mod cache;
+pub mod db;
+pub mod error;
+pub mod insights;
+pub mod metrics;
+pub mod middleware;
+pub mod recommendation;
+pub mod repository;
+pub mod scheduler;
+pub mod services;
+pub mod store;
+
+// These modules are only needed by the binary.
+// Declared pub so integration tests can reach them if needed, but they
+// contain no logic of interest to tests.
+pub mod cli;
+pub mod config;
+pub mod logging;
+

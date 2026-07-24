@@ -1,4 +1,3 @@
-"use chrono::{DateTime, Utc};\nuse serde::{Deserialize, Serialize};\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub enum Urgency {\n    Low,\n    Medium,\n    High,\n    Urgent,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendRequest {\n    pub target_ledgers: Option<u32>,\n    pub urgency: Option<Urgency>,\n    pub max_fee: Option<String>,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct FeeAlternative {\n    pub fee: String,\n    pub estimated_wait_ledgers: u32,\n    pub confidence: f64,\n    pub label: String,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendResponse {\n    pub recommended_fee: String,\n    pub fee_in_stroops: u64,\n    pub estimated_wait_ledgers: u32,\n    pub confidence: f64,\n    pub network_condition: String,\n    pub alternatives: Vec<FeeAlternative>,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendHistoryEntry {\n    pub id: i64,\n    pub requested_at: DateTime<Utc>,\n    pub target_ledgers: u32,\n    pub urgency: String,\n    pub recommended_fee: u64,\n    pub actual_confirmed: Option<bool>,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendHistoryResponse {\n    pub entries: Vec<RecommendHistoryEntry>,\n}\n"
 #[derive(Debug, Clone)]
 pub struct RecommendationConfig {
     pub default_confidence: f64,
@@ -20,4 +19,54 @@ impl Default for RecommendationConfig {
     }
 }
 
-use chrono::{DateTime, Utc};\nuse serde::{Deserialize, Serialize};\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub enum Urgency {\n    Low,\n    Medium,\n    High,\n    Urgent,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendRequest {\n    pub target_ledgers: Option<u32>,\n    pub urgency: Option<Urgency>,\n    pub max_fee: Option<String>,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct FeeAlternative {\n    pub fee: String,\n    pub estimated_wait_ledgers: u32,\n    pub confidence: f64,\n    pub label: String,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendResponse {\n    pub recommended_fee: String,\n    pub fee_in_stroops: u64,\n    pub estimated_wait_ledgers: u32,\n    pub confidence: f64,\n    pub network_condition: String,\n    pub alternatives: Vec<FeeAlternative>,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendHistoryEntry {\n    pub id: i64,\n    pub requested_at: DateTime<Utc>,\n    pub target_ledgers: u32,\n    pub urgency: String,\n    pub recommended_fee: u64,\n    pub actual_confirmed: Option<bool>,\n}\n\n#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct RecommendHistoryResponse {\n    pub entries: Vec<RecommendHistoryEntry>,\n}\n
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Urgency {
+    Low,
+    Medium,
+    High,
+    Urgent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendRequest {
+    pub target_ledgers: Option<u32>,
+    pub urgency: Option<Urgency>,
+    pub max_fee: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeAlternative {
+    pub fee: String,
+    pub estimated_wait_ledgers: u32,
+    pub confidence: f64,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendResponse {
+    pub recommended_fee: String,
+    pub fee_in_stroops: u64,
+    pub estimated_wait_ledgers: u32,
+    pub confidence: f64,
+    pub network_condition: String,
+    pub alternatives: Vec<FeeAlternative>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendHistoryEntry {
+    pub id: i64,
+    pub requested_at: DateTime<Utc>,
+    pub target_ledgers: u32,
+    pub urgency: String,
+    pub recommended_fee: u64,
+    pub actual_confirmed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendHistoryResponse {
+    pub entries: Vec<RecommendHistoryEntry>,
+}
+

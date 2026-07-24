@@ -1,1 +1,351 @@
-mod alerts;\nmod api;\nmod cache;\nmod cli;\nmod config;\nmod db;\nmod error;\nmod insights;\nmod logging;\nmod metrics;\nmod middleware;\nmod recommendation;\nmod repository;\nmod scheduler;\nmod services;\nmod store;\n\nuse std::sync::Arc;\n\nuse axum::http::{HeaderName, Method};\nuse axum::{routing::get, Router};\nuse clap::Parser;\nuse dotenvy::dotenv;\nuse std::time::Duration;\nuse tokio::sync::{Mutex, RwLock};\nuse tower_http::cors::{AllowOrigin, CorsLayer};\n\nuse crate::alerts::AlertManager;\nuse crate::cache::ResponseCache;\nuse crate::cli::Cli;\nuse crate::config::Config;\nuse crate::error::AppError;\nuse crate::insights::{FeeInsightsEngine, HorizonFeeDataProvider, InsightsConfig};\nuse crate::logging::init_logging;\nuse crate::metrics::AppMetrics;\nuse crate::middleware::auth::require_api_key;\nuse crate::middleware::rate_limit::{enforce_rate_limit, RateLimitState};\nuse crate::recommendation::engine::FeeRecommendationEngine;\nuse crate::repository::FeeRepository;\nuse crate::scheduler::run_fee_polling_with_retry;\nuse crate::services::horizon::HorizonClient;\nuse crate::store::{FeeHistoryStore, DEFAULT_CAPACITY};\n\n#[tokio::main]\nasync fn main() {\n    // Load .env file (if present)\n    dotenv().ok();\n\n    // Initialize structured logging\n    init_logging();\n\n    // Parse CLI flags\n    let cli = Cli::parse();\n\n    // Build configuration (CLI overrides env)\n    let config = Config::from_sources(&cli)\n        .map_err(AppError::Config)\n        .unwrap_or_else(|err| {\n            tracing::error!("{}", err);\n            std::process::exit(1);\n        });\n\n    tracing::info!(\n        "Configuration loaded: network={:?}, horizon_url={}, poll_interval_seconds={}, cache_ttl_seconds={}, rate_limit_per_minute={}, api_port={}, allowed_origins={:?}, retry_attempts={}, base_retry_delay_ms={}, database_url={}, storage_retention_days={}, api_key_configured={}, webhook_configured={}, alert_threshold={:?}",\n        config.stellar_network,\n        config.horizon_url,\n        config.poll_interval_seconds,\n        config.cache_ttl_seconds,\n        config.rate_limit_per_minute,\n        config.api_port,\n        config.allowed_origins,\n        config.retry_attempts,\n        config.base_retry_delay_ms,\n        config.database_url,\n        config.storage_retention_days,\n        config.api_key.is_some(),\n        config.webhook_url.is_some(),\n        config.alert_threshold,\n    );\n\n    // ---- Database ----\n    let db_pool = db::create_pool(&config.database_url)\n        .await\n        .unwrap_or_else(|err| {\n            tracing::error!("Failed to initialise database: {}", err);\n            std::process::exit(1);\n        });\n    tracing::info!("Database initialised: {}", config.database_url);\n\n    // ---- Metrics ----\n    let app_metrics = Arc::new(AppMetrics::new().unwrap_or_else(|err| {\n        tracing::error!("Failed to initialise Prometheus metrics: {}", err);\n        std::process::exit(1);\n    }));\n\n    let repository = Arc::new(FeeRepository::new(db_pool));\n\n    // ---- Shared state ----\n    let horizon_client = Arc::new(HorizonClient::new(config.horizon_url.clone()));\n    tracing::info!("Horizon client initialized: {}", horizon_client.base_url());\n\n    let fee_store = Arc::new(RwLock::new(FeeHistoryStore::new(DEFAULT_CAPACITY)));\n\n    let insights_engine = Arc::new(RwLock::new(FeeInsightsEngine::new(\n        InsightsConfig::default(),\n    )));\n    let current_fees_cache = Arc::new(Mutex::new(ResponseCache::new(Duration::from_secs(\n        config.cache_ttl_seconds,\n    ))));\n\n    // ---- Startup rehydration ----\n    let rehydration_window = chrono::Utc::now() - chrono::Duration::hours(24);\n    match repository.fetch_since(rehydration_window).await {\n        Ok(points) if !points.is_empty() => {\n            let count = points.len();\n            {\n                let mut store = fee_store.write().await;\n                for point in &points {\n                    store.push(point.clone());\n                }\n            }\n            {\n                let mut engine = insights_engine.write().await;\n                if let Err(err) = engine.process_fee_data(&points).await {\n                    tracing::warn!("Insights engine error during rehydration: {}", err);\n                }\n            }\n            tracing::info!("Restored {} fee data points from database", count);\n        }\n        Ok(_) => tracing::info!("No historical fee data found \u2014 starting cold"),\n        Err(err) => tracing::warn!("Failed to rehydrate store from database: {}", err),\n    }\n    let horizon_provider = Arc::new(HorizonFeeDataProvider::new((*horizon_client).clone()));\n    let fee_stats_provider: Arc<dyn api::fees::FeeStatsProvider + Send + Sync> =\n        horizon_client.clone();\n    let alert_manager = Arc::new(AlertManager::new(\n        config.webhook_url.clone(),\n        config.alert_threshold.clone(),\n        config.stellar_network.as_str().to_string(),\n    ));\n    let rate_limit_state = Arc::new(RateLimitState::new(config.rate_limit_per_minute));\n\n    // ---- CORS policy ----\n    // Log and skip invalid origins rather than panicking at startup.\n    let origins: Vec<axum::http::HeaderValue> = config\n        .allowed_origins\n        .iter()\n        .filter_map(|o| match o.parse() {\n            Ok(v) => Some(v),\n            Err(err) => {\n                tracing::warn!("Skipping invalid ALLOWED_ORIGINS entry '{}': {}", o, err);\n                None\n            }\n        })\n        .collect();\n\n    let cors = CorsLayer::new()\n        .allow_origin(AllowOrigin::list(origins))\n        .allow_methods([\n            Method::GET,\n            Method::POST,\n            Method::PATCH,\n            Method::DELETE,\n            Method::OPTIONS,\n        ])\n        .allow_headers([\n            HeaderName::from_static("content-type"),\n            HeaderName::from_static("x-api-key"),\n        ])\n        .expose_headers([\n            HeaderName::from_static("etag"),\n            HeaderName::from_static("cache-control"),\n            HeaderName::from_static("last-modified"),\n            HeaderName::from_static("x-ratelimit-limit"),\n            HeaderName::from_static("x-ratelimit-remaining"),\n            HeaderName::from_static("x-ratelimit-reset"),\n            HeaderName::from_static("retry-after"),\n        ])\n        .max_age(Duration::from_secs(3600));\n\n    // ---- Axum router ----\n    //\n    // Route tiers (from least to most restricted):\n    //\n    //  /health   \u2014 no rate limit, no auth (must always respond for load-balancer probes)\n    //  /metrics  \u2014 rate limited, NO API-key auth (must be scrapeable by Prometheus agents)\n    //  all else  \u2014 rate limited + optional API-key auth\n    //\n    // fees routes get shared state (Horizon client, store, insights engine)\n    // insights routes get Arc<RwLock<FeeInsightsEngine>> as their own state\n    // Both sub-routers are Router<()> after with_state, so merge works fine\n\n    let fees_router = Router::new()\n        .route("/fees/current", get(api::fees::current_fees))\n        .route("/fees/history", get(api::fees::fee_history))\n        .route("/fees/trend", get(api::fees::fee_trend))\n        .with_state(Arc::new(api::fees::FeesApiState {\n            fee_stats_provider: Some(fee_stats_provider),\n            fee_cache: current_fees_cache,\n            fee_store: fee_store.clone(),\n            insights_engine: Some(insights_engine.clone()),\n        }));\n\n    // Business routes that require optional API-key auth.\n    let recommendation_engine = FeeRecommendationEngine::new(\n        fee_store.clone(),\n        Some(insights_engine.clone()),\n    );\n    let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {\n        engine: recommendation_engine,\n        metrics: Some(app_metrics.clone()),\n    });\n    let recommendation_router = Router::new()\n        .route(\n            "/fees/recommend",\n            axum::routing::post(api::recommendation::recommend),\n        )\n        .route(\n            "/fees/recommend/history",\n            axum::routing::get(api::recommendation::recommend_history),\n        )\n        .with_state(recommendation_state);\n\n    let api_routes = Router::new()\n        .merge(fees_router)\n        .merge(recommendation_router)\n        .merge(api::insights::create_insights_router(\n            insights_engine.clone(),\n        ))\n        .merge(\n            Router::new()\n                .route(\n                    "/alerts/config",\n                    axum::routing::post(api::alerts::create_alert),\n                )\n                .route(\n                    "/alerts/config",\n                    axum::routing::get(api::alerts::list_alerts),\n                )\n                .route(\n                    "/alerts/config/:id",\n                    axum::routing::patch(api::alerts::update_alert),\n                )\n                .route(\n                    "/alerts/config/:id",\n                    axum::routing::delete(api::alerts::delete_alert),\n                )\n                .route(\n                    "/alerts/history",\n                    axum::routing::get(api::alerts::get_alert_history),\n                )\n                .with_state(repository.clone()),\n        );\n\n    let api_routes = match config.api_key.clone() {\n        Some(expected_key) => {\n            tracing::info!("API key authentication is enabled for protected routes");\n            api_routes.layer(axum::middleware::from_fn_with_state(\n                Some(expected_key),\n                require_api_key,\n            ))\n        }\n        None => api_routes,\n    };\n\n    // /metrics: rate limited but NOT behind API-key auth (Prometheus scrapers\n    // should not need to know the API key).\n    let metrics_for_handler = app_metrics.clone();\n    let metrics_route = Router::new().route(\n        "/metrics",\n        get(move || {\n            let m = metrics_for_handler.clone();\n            async move {\n                match m.render() {\n                    Ok(body) => axum::response::Response::builder()\n                        .status(200)\n                        .header(\n                            axum::http::header::CONTENT_TYPE,\n                            "text/plain; version=0.0.4",\n                        )\n                        .body(axum::body::Body::from(body))\n                        .unwrap_or_else(|_| {\n                            axum::response::Response::builder()\n                                .status(500)\n                                .body(axum::body::Body::from("internal error"))\n                                .unwrap()\n                        }),\n                    Err(err) => {\n                        tracing::error!("Failed to render metrics: {}", err);\n                        axum::response::Response::builder()\n                            .status(500)\n                            .body(axum::body::Body::from("metrics error"))\n                            .unwrap_or_else(|_| {\n                                axum::response::Response::new(axum::body::Body::empty())\n                            })\n                    }\n                }\n            }\n        }),\n    );\n\n    // Rate-limited tier: metrics + business API routes.\n    let rate_limited = Router::new().merge(metrics_route).merge(api_routes).layer(\n        axum::middleware::from_fn_with_state(rate_limit_state, enforce_rate_limit),\n    );\n\n    // Final app: /health bypasses the rate limiter entirely.\n    let app = Router::new()\n        .route("/health", get(api::health::health))\n        .merge(rate_limited)\n        .layer(cors);\n\n    // ---- TCP listener ----\n    let addr = format!("0.0.0.0:{}", config.api_port);\n    let listener = tokio::net::TcpListener::bind(&addr)\n        .await\n        .unwrap_or_else(|err| {\n            tracing::error!("Failed to bind to {}: {}", addr, err);\n            std::process::exit(1);\n        });\n\n    tracing::info!("API server listening on {}", addr);\n\n    // ---- Run server + scheduler concurrently ----\n    tokio::join!(\n        async {\n            axum::serve(\n                listener,\n                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),\n            )\n            .await\n            .unwrap_or_else(|err| tracing::error!("Server error: {}", err));\n        },\n        run_fee_polling_with_retry(\n            horizon_provider,\n            fee_store,\n            insights_engine,\n            config.poll_interval_seconds,\n            config.retry_attempts,\n            config.base_retry_delay_ms,\n            Some(repository),\n            config.storage_retention_days,\n            Some(app_metrics),\n            Some(alert_manager),\n        ),\n    );\n\n    tracing::info!("Application shut down cleanly");\n}\n
+mod alerts;
+mod api;
+mod cache;
+mod cli;
+mod config;
+mod db;
+mod error;
+mod insights;
+mod logging;
+mod metrics;
+mod middleware;
+mod recommendation;
+mod repository;
+mod scheduler;
+mod services;
+mod store;
+
+use std::sync::Arc;
+
+use axum::http::{HeaderName, Method};
+use axum::{routing::get, Router};
+use clap::Parser;
+use dotenvy::dotenv;
+use std::time::Duration;
+use tokio::sync::{Mutex, RwLock};
+use tower_http::cors::{AllowOrigin, CorsLayer};
+
+use crate::alerts::AlertManager;
+use crate::cache::ResponseCache;
+use crate::cli::Cli;
+use crate::config::Config;
+use crate::error::AppError;
+use crate::insights::{FeeInsightsEngine, HorizonFeeDataProvider, InsightsConfig};
+use crate::logging::init_logging;
+use crate::metrics::AppMetrics;
+use crate::middleware::auth::require_api_key;
+use crate::middleware::rate_limit::{enforce_rate_limit, RateLimitState};
+use crate::recommendation::engine::FeeRecommendationEngine;
+use crate::repository::FeeRepository;
+use crate::scheduler::run_fee_polling_with_retry;
+use crate::services::horizon::HorizonClient;
+use crate::store::{FeeHistoryStore, DEFAULT_CAPACITY};
+
+#[tokio::main]
+async fn main() {
+    // Load .env file (if present)
+    dotenv().ok();
+
+    // Initialize structured logging
+    init_logging();
+
+    // Parse CLI flags
+    let cli = Cli::parse();
+
+    // Build configuration (CLI overrides env)
+    let config = Config::from_sources(&cli)
+        .map_err(AppError::Config)
+        .unwrap_or_else(|err| {
+            tracing::error!("{}", err);
+            std::process::exit(1);
+        });
+
+    tracing::info!(
+        "Configuration loaded: network={:?}, horizon_url={}, poll_interval_seconds={}, cache_ttl_seconds={}, rate_limit_per_minute={}, api_port={}, allowed_origins={:?}, retry_attempts={}, base_retry_delay_ms={}, database_url={}, storage_retention_days={}, api_key_configured={}, webhook_configured={}, alert_threshold={:?}",
+        config.stellar_network,
+        config.horizon_url,
+        config.poll_interval_seconds,
+        config.cache_ttl_seconds,
+        config.rate_limit_per_minute,
+        config.api_port,
+        config.allowed_origins,
+        config.retry_attempts,
+        config.base_retry_delay_ms,
+        config.database_url,
+        config.storage_retention_days,
+        config.api_key.is_some(),
+        config.webhook_url.is_some(),
+        config.alert_threshold,
+    );
+
+    // ---- Database ----
+    let db_pool = db::create_pool(&config.database_url)
+        .await
+        .unwrap_or_else(|err| {
+            tracing::error!("Failed to initialise database: {}", err);
+            std::process::exit(1);
+        });
+    tracing::info!("Database initialised: {}", config.database_url);
+
+    // ---- Metrics ----
+    let app_metrics = Arc::new(AppMetrics::new().unwrap_or_else(|err| {
+        tracing::error!("Failed to initialise Prometheus metrics: {}", err);
+        std::process::exit(1);
+    }));
+
+    let repository = Arc::new(FeeRepository::new(db_pool));
+
+    // ---- Shared state ----
+    let horizon_client = Arc::new(HorizonClient::new(config.horizon_url.clone()));
+    tracing::info!("Horizon client initialized: {}", horizon_client.base_url());
+
+    let fee_store = Arc::new(RwLock::new(FeeHistoryStore::new(DEFAULT_CAPACITY)));
+
+    let insights_engine = Arc::new(RwLock::new(FeeInsightsEngine::new(
+        InsightsConfig::default(),
+    )));
+    let current_fees_cache = Arc::new(Mutex::new(ResponseCache::new(Duration::from_secs(
+        config.cache_ttl_seconds,
+    ))));
+
+    // ---- Startup rehydration ----
+    let rehydration_window = chrono::Utc::now() - chrono::Duration::hours(24);
+    match repository.fetch_since(rehydration_window).await {
+        Ok(points) if !points.is_empty() => {
+            let count = points.len();
+            {
+                let mut store = fee_store.write().await;
+                for point in &points {
+                    store.push(point.clone());
+                }
+            }
+            {
+                let mut engine = insights_engine.write().await;
+                if let Err(err) = engine.process_fee_data(&points).await {
+                    tracing::warn!("Insights engine error during rehydration: {}", err);
+                }
+            }
+            tracing::info!("Restored {} fee data points from database", count);
+        }
+        Ok(_) => tracing::info!("No historical fee data found — starting cold"),
+        Err(err) => tracing::warn!("Failed to rehydrate store from database: {}", err),
+    }
+    let horizon_provider = Arc::new(HorizonFeeDataProvider::new((*horizon_client).clone()));
+    let fee_stats_provider: Arc<dyn api::fees::FeeStatsProvider + Send + Sync> =
+        horizon_client.clone();
+    let alert_manager = Arc::new(AlertManager::new(
+        config.webhook_url.clone(),
+        config.alert_threshold.clone(),
+        config.stellar_network.as_str().to_string(),
+    ));
+    let rate_limit_state = Arc::new(RateLimitState::new(config.rate_limit_per_minute));
+
+    // ---- CORS policy ----
+    // Log and skip invalid origins rather than panicking at startup.
+    let origins: Vec<axum::http::HeaderValue> = config
+        .allowed_origins
+        .iter()
+        .filter_map(|o| match o.parse() {
+            Ok(v) => Some(v),
+            Err(err) => {
+                tracing::warn!("Skipping invalid ALLOWED_ORIGINS entry '{}': {}", o, err);
+                None
+            }
+        })
+        .collect();
+
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("x-api-key"),
+        ])
+        .expose_headers([
+            HeaderName::from_static("etag"),
+            HeaderName::from_static("cache-control"),
+            HeaderName::from_static("last-modified"),
+            HeaderName::from_static("x-ratelimit-limit"),
+            HeaderName::from_static("x-ratelimit-remaining"),
+            HeaderName::from_static("x-ratelimit-reset"),
+            HeaderName::from_static("retry-after"),
+        ])
+        .max_age(Duration::from_secs(3600));
+
+    // ---- Axum router ----
+    //
+    // Route tiers (from least to most restricted):
+    //
+    //  /health   \u2014 no rate limit, no auth (must always respond for load-balancer probes)
+    //  /metrics  \u2014 rate limited, NO API-key auth (must be scrapeable by Prometheus agents)
+    //  all else  \u2014 rate limited + optional API-key auth
+    //
+    // fees routes get shared state (Horizon client, store, insights engine)
+    // insights routes get Arc<RwLock<FeeInsightsEngine>> as their own state
+    // Both sub-routers are Router<()> after with_state, so merge works fine
+
+    let fees_router = Router::new()
+        .route("/fees/current", get(api::fees::current_fees))
+        .route("/fees/history", get(api::fees::fee_history))
+        .route("/fees/trend", get(api::fees::fee_trend))
+        .with_state(Arc::new(api::fees::FeesApiState {
+            fee_stats_provider: Some(fee_stats_provider),
+            fee_cache: current_fees_cache,
+            fee_store: fee_store.clone(),
+            insights_engine: Some(insights_engine.clone()),
+        }));
+
+    // Business routes that require optional API-key auth.
+    let recommendation_engine = FeeRecommendationEngine::new(
+        fee_store.clone(),
+        Some(insights_engine.clone()),
+    );
+    let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
+        engine: recommendation_engine,
+        metrics: Some(app_metrics.clone()),
+    });
+    let recommendation_router = Router::new()
+        .route(
+            "/fees/recommend",
+            axum::routing::get(api::recommendation::get_recommend)
+                .post(api::recommendation::recommend),
+        )
+        .route(
+            "/fees/recommend/history",
+            axum::routing::get(api::recommendation::recommend_history),
+        )
+        .with_state(recommendation_state);
+
+    let api_routes = Router::new()
+        .merge(fees_router)
+        .merge(recommendation_router)
+        .merge(api::insights::create_insights_router(
+            insights_engine.clone(),
+        ))
+        .merge(
+            Router::new()
+                .route(
+                    "/alerts/config",
+                    axum::routing::post(api::alerts::create_alert),
+                )
+                .route(
+                    "/alerts/config",
+                    axum::routing::get(api::alerts::list_alerts),
+                )
+                .route(
+                    "/alerts/config/:id",
+                    axum::routing::patch(api::alerts::update_alert),
+                )
+                .route(
+                    "/alerts/config/:id",
+                    axum::routing::delete(api::alerts::delete_alert),
+                )
+                .route(
+                    "/alerts/history",
+                    axum::routing::get(api::alerts::get_alert_history),
+                )
+                .with_state(repository.clone()),
+        );
+
+    let api_routes = match config.api_key.clone() {
+        Some(expected_key) => {
+            tracing::info!("API key authentication is enabled for protected routes");
+            api_routes.layer(axum::middleware::from_fn_with_state(
+                Some(expected_key),
+                require_api_key,
+            ))
+        }
+        None => api_routes,
+    };
+
+    // /metrics: rate limited but NOT behind API-key auth (Prometheus scrapers
+    // should not need to know the API key).
+    let metrics_for_handler = app_metrics.clone();
+    let metrics_route = Router::new().route(
+        "/metrics",
+        get(move || {
+            let m = metrics_for_handler.clone();
+            async move {
+                match m.render() {
+                    Ok(body) => axum::response::Response::builder()
+                        .status(200)
+                        .header(
+                            axum::http::header::CONTENT_TYPE,
+                            "text/plain; version=0.0.4",
+                        )
+                        .body(axum::body::Body::from(body))
+                        .unwrap_or_else(|_| {
+                            axum::response::Response::builder()
+                                .status(500)
+                                .body(axum::body::Body::from("internal error"))
+                                .unwrap()
+                        }),
+                    Err(err) => {
+                        tracing::error!("Failed to render metrics: {}", err);
+                        axum::response::Response::builder()
+                            .status(500)
+                            .body(axum::body::Body::from("metrics error"))
+                            .unwrap_or_else(|_| {
+                                axum::response::Response::new(axum::body::Body::empty())
+                            })
+                    }
+                }
+            }
+        }),
+    );
+
+    // Rate-limited tier: metrics + business API routes.
+    let rate_limited = Router::new().merge(metrics_route).merge(api_routes).layer(
+        axum::middleware::from_fn_with_state(rate_limit_state, enforce_rate_limit),
+    );
+
+    // Final app: /health bypasses the rate limiter entirely.
+    let app = Router::new()
+        .route("/health", get(api::health::health))
+        .merge(rate_limited)
+        .layer(cors);
+
+    // ---- TCP listener ----
+    let addr = format!("0.0.0.0:{}", config.api_port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .unwrap_or_else(|err| {
+            tracing::error!("Failed to bind to {}: {}", addr, err);
+            std::process::exit(1);
+        });
+
+    tracing::info!("API server listening on {}", addr);
+
+    // ---- Run server + scheduler concurrently ----
+    tokio::join!(
+        async {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap_or_else(|err| tracing::error!("Server error: {}", err));
+        },
+        run_fee_polling_with_retry(
+            horizon_provider,
+            fee_store,
+            insights_engine,
+            config.poll_interval_seconds,
+            config.retry_attempts,
+            config.base_retry_delay_ms,
+            Some(repository),
+            config.storage_retention_days,
+            Some(app_metrics),
+            Some(alert_manager),
+        ),
+    );
+
+    tracing::info!("Application shut down cleanly");
+}
+

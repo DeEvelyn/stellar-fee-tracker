@@ -1,1 +1,133 @@
-"// ---- /fees/current ----\nexport interface PercentileFees {\n  p10: string\n  p20: string\n  p30: string\n  p40: string\n  p50: string\n  p60: string\n  p70: string\n  p80: string\n  p90: string\n  p95: string\n  p99: string\n}\n\nexport interface CurrentFeeResponse {\n  base_fee: string\n  min_fee: string\n  max_fee: string\n  avg_fee: string\n  percentiles: PercentileFees\n}\n\n// ---- /fees/history ----\nexport interface FeeDataPoint {\n  fee_amount: number\n  timestamp: string\n  transaction_hash: string\n  ledger_sequence: number\n}\n\nexport interface FeeSummary {\n  min: number\n  max: number\n  avg: number\n  p50: number\n  p95: number\n}\n\nexport interface FeeHistoryResponse {\n  window: string\n  from: string\n  to: string\n  data_points: number\n  fees: FeeDataPoint[]\n  summary: FeeSummary\n}\n\n// ---- /fees/trend ----\nexport interface TrendChanges {\n  '1h_pct':  number | null\n  '6h_pct':  number | null\n  '24h_pct': number | null\n}\n\nexport interface FeeTrendResponse {\n  status: 'Normal' | 'Rising' | 'Congested' | 'Declining'\n  trend_strength: 'Weak' | 'Moderate' | 'Strong'\n  changes: TrendChanges\n  recent_spike_count: number\n  predicted_congestion_minutes: number | null\n  last_updated: string\n}\n\n// ---- /insights ----\nexport interface AverageResult {\n  value: number\n  sample_count: number\n  is_partial: boolean\n  calculated_at: string\n}\n\nexport interface RollingAverages {\n  short_term:  AverageResult\n  medium_term: AverageResult\n  long_term:   AverageResult\n}\n\nexport interface ExtremeValue {\n  value: number\n  timestamp: string\n  transaction_hash: string\n}\n\nexport interface FeeExtremes {\n  current_min:  ExtremeValue\n  current_max:  ExtremeValue\n  period_start: string\n  period_end:   string\n}\n\nexport interface InsightsResponse {\n  rolling_averages: RollingAverages\n  extremes:         FeeExtremes\n  last_updated:     string\n  // these exist in the response but we can ignore them for now\n  congestion_trends?: unknown\n  data_quality?:      unknown\n}\n// ---- /health ----\nexport interface HealthResponse {\n  status: string\n}\n\n// ---- /fees/recommend ----\nexport interface FeeAlternative {\n  fee: string\n  estimated_wait_ledgers: number\n  confidence: number\n  label: string\n}\n\nexport interface RecommendResponse {\n  recommended_fee: string\n  fee_in_stroops: number\n  estimated_wait_ledgers: number\n  confidence: number\n  network_condition: string\n  alternatives: FeeAlternative[]\n}\n\nexport type Urgency = \"low\" | \"medium\" | \"high\" | \"urgent\"\n\nexport interface RecommendRequest {\n  target_ledgers?: number\n  urgency?: Urgency\n  max_fee?: string\n}\n"
+// ---- /fees/current ----
+export interface PercentileFees {
+  p10: string
+  p20: string
+  p30: string
+  p40: string
+  p50: string
+  p60: string
+  p70: string
+  p80: string
+  p90: string
+  p95: string
+  p99: string
+}
+
+export interface CurrentFeeResponse {
+  base_fee: string
+  min_fee: string
+  max_fee: string
+  avg_fee: string
+  percentiles: PercentileFees
+}
+
+// ---- /fees/history ----
+export interface FeeDataPoint {
+  fee_amount: number
+  timestamp: string
+  transaction_hash: string
+  ledger_sequence: number
+}
+
+export interface FeeSummary {
+  min: number
+  max: number
+  avg: number
+  p50: number
+  p95: number
+}
+
+export interface FeeHistoryResponse {
+  window: string
+  from: string
+  to: string
+  data_points: number
+  fees: FeeDataPoint[]
+  summary: FeeSummary
+}
+
+// ---- /fees/trend ----
+export interface TrendChanges {
+  '1h_pct':  number | null
+  '6h_pct':  number | null
+  '24h_pct': number | null
+}
+
+export interface FeeTrendResponse {
+  status: 'Normal' | 'Rising' | 'Congested' | 'Declining'
+  trend_strength: 'Weak' | 'Moderate' | 'Strong'
+  changes: TrendChanges
+  recent_spike_count: number
+  predicted_congestion_minutes: number | null
+  last_updated: string
+}
+
+// ---- /insights ----
+export interface AverageResult {
+  value: number
+  sample_count: number
+  is_partial: boolean
+  calculated_at: string
+}
+
+export interface RollingAverages {
+  short_term:  AverageResult
+  medium_term: AverageResult
+  long_term:   AverageResult
+}
+
+export interface ExtremeValue {
+  value: number
+  timestamp: string
+  transaction_hash: string
+}
+
+export interface FeeExtremes {
+  current_min:  ExtremeValue
+  current_max:  ExtremeValue
+  period_start: string
+  period_end:   string
+}
+
+export interface InsightsResponse {
+  rolling_averages: RollingAverages
+  extremes:         FeeExtremes
+  last_updated:     string
+  // these exist in the response but we can ignore them for now
+  congestion_trends?: unknown
+  data_quality?:      unknown
+}
+// ---- /health ----
+export interface HealthResponse {
+  status: string
+}
+
+// ---- /fees/recommend ----
+export interface FeeAlternative {
+  fee: string
+  estimated_wait_ledgers: number
+  confidence: number
+  label: string
+}
+
+export interface RecommendResponse {
+  recommended_fee: string
+  fee_in_stroops: number
+  estimated_wait_ledgers: number
+  confidence: number
+  network_condition: string
+  alternatives: FeeAlternative[]
+}
+
+export type Urgency = "low" | "medium" | "high" | "urgent"
+
+export interface RecommendRequest {
+  target_ledgers?: number
+  urgency?: Urgency
+  max_fee?: string
+  /** Desired confidence level as a fraction (e.g. 0.90 for 90%) */
+  confidence?: number
+}
+
+/** Alias exported for consumers that prefer the Response name */
+export type RecommendationResponse = RecommendResponse

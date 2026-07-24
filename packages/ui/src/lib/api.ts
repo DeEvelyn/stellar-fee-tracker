@@ -1,1 +1,43 @@
-"import type {\n  CurrentFeeResponse,\n  FeeHistoryResponse,\n  FeeTrendResponse,\n  InsightsResponse,\n  HealthResponse,\n  RecommendResponse,\n  RecommendRequest,\n} from './types'\n\nconst BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'\n\nasync function post<T>(path: string, body: unknown): Promise<T> {\n  const res = await fetch(`${BASE}${path}`, {\n    method: \"POST\",\n    headers: { \"content-type\": \"application/json\" },\n    body: JSON.stringify(body),\n  })\n  if (!res.ok) {\n    const err = await res.json().catch(() => ({ error: res.statusText }))\n    throw new Error(err.error || `API error ${res.status} on ${path}`)\n  }\n  return res.json() as Promise<T>\n}\n\nasync function get<T>(path: string): Promise<T> {\n  const res = await fetch(`${BASE}${path}`, {\n    next: { revalidate: 0 }, // always fresh\n  })\n  if (!res.ok) {\n    throw new Error(`API error ${res.status} on ${path}`)\n  }\n  return res.json() as Promise<T>\n}\n\nexport const api = {\n  currentFees:  ()               => get<CurrentFeeResponse>('/fees/current'),\n  feeHistory:   (window = '1h')  => get<FeeHistoryResponse>(`/fees/history?window=${window}`),\n  feeTrend:     ()               => get<FeeTrendResponse>('/fees/trend'),\n  insights:     ()               => get<InsightsResponse>('/insights'),\n  health:       ()               => get<HealthResponse>('/health'),\n}"
+import type {
+  CurrentFeeResponse,
+  FeeHistoryResponse,
+  FeeTrendResponse,
+  InsightsResponse,
+  HealthResponse,
+  RecommendResponse,
+  RecommendRequest,
+} from './types'
+
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `API error ${res.status} on ${path}`)
+  }
+  return res.json() as Promise<T>
+}
+
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    next: { revalidate: 0 }, // always fresh
+  })
+  if (!res.ok) {
+    throw new Error(`API error ${res.status} on ${path}`)
+  }
+  return res.json() as Promise<T>
+}
+
+export const api = {
+  currentFees:  ()               => get<CurrentFeeResponse>('/fees/current'),
+  feeHistory:   (window = '1h')  => get<FeeHistoryResponse>(`/fees/history?window=${window}`),
+  feeTrend:     ()               => get<FeeTrendResponse>('/fees/trend'),
+  insights:     ()               => get<InsightsResponse>('/insights'),
+  health:       ()               => get<HealthResponse>('/health'),
+  recommend:    (body: RecommendRequest) => post<RecommendResponse>('/fees/recommend', body),
+}

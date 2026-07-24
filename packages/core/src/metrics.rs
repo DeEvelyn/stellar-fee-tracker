@@ -1,1 +1,266 @@
-//! Prometheus metrics registry for the Stellar fee tracker.\n//!\n//! [] owns all registered metrics and the [] they\n//! belong to. Construct it once at startup, wrap in , and pass it\n//! to the scheduler and HTTP middleware.\n//!\n//! Exposed at  in Prometheus text exposition format\n//! (). The endpoint is intentionally excluded\n//! from API-key auth so it can be scraped by Prometheus / Grafana agents.\n\nuse prometheus::{Counter, Gauge, Opts, Registry};\n\n/// All application-level Prometheus metrics.\n///\n/// Only metrics that are actively incremented are registered here.\n/// Registering metrics that are never written produces misleading zeros\n/// in Prometheus/Grafana dashboards.\npub struct AppMetrics {\n    /// Total number of Horizon polling attempts (success + failure).\n    pub polls_total: Counter,\n    /// Total number of failed Horizon polling attempts.\n    pub poll_errors_total: Counter,\n    /// Current number of fee data points held in the in-memory store.\n    pub fee_points_stored: Gauge,\n    /// Latest short-term rolling average fee (in stroops).\n    pub current_avg_fee: Gauge,\n    /// Total number of fee spikes detected by the insights engine.\n    pub spikes_detected_total: Counter,\n    /// Total number of fee recommendation requests.\n    pub recommendations_total: Counter,\n    /// Total number of failed fee recommendation requests.\n    pub recommendation_errors_total: Counter,\n    /// The registry that owns all of the above metrics.\n    pub registry: Registry,\n}\n\nimpl AppMetrics {\n    /// Create and register all metrics. Returns an error if any metric\n    /// name is invalid or duplicated (should not happen in practice).\n    pub fn new() -> Result<Self, prometheus::Error> {\n        let registry = Registry::new();\n\n        let polls_total = Counter::with_opts(Opts::new(\n            "stellar_fee_tracker_polls_total",\n            "Total Horizon polling attempts",\n        ))?;\n\n        let poll_errors_total = Counter::with_opts(Opts::new(\n            "stellar_fee_tracker_poll_errors_total",\n            "Failed Horizon polling attempts",\n        ))?;\n\n        let fee_points_stored = Gauge::with_opts(Opts::new(\n            "stellar_fee_tracker_fee_points_stored",\n            "Current size of the FeeHistoryStore",\n        ))?;\n\n        let current_avg_fee = Gauge::with_opts(Opts::new(\n            "stellar_fee_tracker_current_avg_fee",\n            "Latest short-term rolling average fee in stroops",\n        ))?;\n\n        let spikes_detected_total = Counter::with_opts(Opts::new(\n            "stellar_fee_tracker_spikes_detected_total",\n            "Total fee spikes detected",\n        ))?;\n\n        let recommendations_total = Counter::with_opts(Opts::new(\n            "stellar_fee_tracker_recommendations_total",\n            "Total fee recommendation requests",\n        ))?;\n\n        let recommendation_errors_total = Counter::with_opts(Opts::new(\n            "stellar_fee_tracker_recommendation_errors_total",\n            "Total failed fee recommendation requests",\n        ))?;\n\n        registry.register(Box::new(polls_total.clone()))?;\n        registry.register(Box::new(poll_errors_total.clone()))?;\n        registry.register(Box::new(fee_points_stored.clone()))?;\n        registry.register(Box::new(current_avg_fee.clone()))?;\n        registry.register(Box::new(spikes_detected_total.clone()))?;\n        registry.register(Box::new(recommendations_total.clone()))?;\n        registry.register(Box::new(recommendation_errors_total.clone()))?;\n\n        Ok(Self {\n            polls_total,\n            poll_errors_total,\n            fee_points_stored,\n            current_avg_fee,\n            spikes_detected_total,\n            recommendations_total,\n            recommendation_errors_total,\n            registry,\n        })\n    }\n\n    /// Render all metrics as Prometheus text format (for the  endpoint).\n    pub fn render(&self) -> Result<String, prometheus::Error> {\n        use prometheus::Encoder;\n        let encoder = prometheus::TextEncoder::new();\n        let metric_families = self.registry.gather();\n        let mut buf = Vec::new();\n        encoder.encode(&metric_families, &mut buf)?;\n        Ok(String::from_utf8(buf).unwrap_or_default())\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn all_metrics_register_without_error() {\n        let metrics = AppMetrics::new();\n        assert!(\n            metrics.is_ok(),\n            "AppMetrics::new() failed: {:?}",\n            metrics.err()\n        );\n    }\n\n    #[test]\n    fn render_produces_non_empty_output_after_increment() {\n        let metrics = AppMetrics::new().unwrap();\n        metrics.polls_total.inc();\n        let output = metrics.render().unwrap();\n        assert!(output.contains("stellar_fee_tracker_polls_total"));\n    }\n\n    #[test]\n    fn counters_increment_correctly() {\n        let metrics = AppMetrics::new().unwrap();\n        metrics.polls_total.inc_by(3.0);\n        metrics.poll_errors_total.inc();\n        assert!((metrics.polls_total.get() - 3.0).abs() < f64::EPSILON);\n        assert!((metrics.poll_errors_total.get() - 1.0).abs() < f64::EPSILON);\n    }\n\n    #[test]\n    fn gauge_set_and_get() {\n        let metrics = AppMetrics::new().unwrap();\n        metrics.fee_points_stored.set(42.0);\n        assert!((metrics.fee_points_stored.get() - 42.0).abs() < f64::EPSILON);\n    }\n}\n\n#[cfg(test)]\nmod integration_tests {\n    use super::*;\n    use std::sync::Arc;\n\n    use axum::{\n        body::Body,\n        http::{Method, Request},\n        response::Response,\n        routing::get,\n        Router,\n    };\n    use http_body_util::BodyExt;\n    use tower::ServiceExt;\n\n    async fn make_metrics_app() -> (Router, Arc<AppMetrics>) {\n        let metrics = Arc::new(AppMetrics::new().unwrap());\n        let m = metrics.clone();\n        let app = Router::new().route(\n            "/metrics",\n            get(move || {\n                let m2 = m.clone();\n                async move {\n                    match m2.render() {\n                        Ok(body) => Response::builder()\n                            .status(200)\n                            .header("content-type", "text/plain; version=0.0.4")\n                            .body(Body::from(body))\n                            .unwrap(),\n                        Err(_) => Response::builder()\n                            .status(500)\n                            .body(Body::from("error"))\n                            .unwrap(),\n                    }\n                }\n            }),\n        );\n        (app, metrics)\n    }\n\n    #[tokio::test]\n    async fn metrics_endpoint_returns_200() {\n        let (app, _) = make_metrics_app().await;\n        let req = Request::builder()\n            .method(Method::GET)\n            .uri("/metrics")\n            .body(Body::empty())\n            .unwrap();\n        let resp = app.oneshot(req).await.unwrap();\n        assert_eq!(resp.status(), 200);\n    }\n\n    #[tokio::test]\n    async fn metrics_endpoint_content_type_is_prometheus_text() {\n        let (app, _) = make_metrics_app().await;\n        let req = Request::builder()\n            .method(Method::GET)\n            .uri("/metrics")\n            .body(Body::empty())\n            .unwrap();\n        let resp = app.oneshot(req).await.unwrap();\n        let ct = resp\n            .headers()\n            .get("content-type")\n            .unwrap()\n            .to_str()\n            .unwrap();\n        assert_eq!(ct, "text/plain; version=0.0.4");\n    }\n\n    #[tokio::test]\n    async fn metrics_endpoint_contains_all_metric_names_after_increment() {\n        let (app, metrics) = make_metrics_app().await;\n\n        // Simulate a poll cycle\n        metrics.polls_total.inc();\n        metrics.poll_errors_total.inc();\n        metrics.fee_points_stored.set(10.0);\n        metrics.current_avg_fee.set(150.5);\n        metrics.spikes_detected_total.inc();\n\n        let req = Request::builder()\n            .method(Method::GET)\n            .uri("/metrics")\n            .body(Body::empty())\n            .unwrap();\n        let resp = app.oneshot(req).await.unwrap();\n        let bytes = resp.into_body().collect().await.unwrap().to_bytes();\n        let body = String::from_utf8(bytes.to_vec()).unwrap();\n\n        assert!(body.contains("stellar_fee_tracker_polls_total"));\n        assert!(body.contains("stellar_fee_tracker_poll_errors_total"));\n        assert!(body.contains("stellar_fee_tracker_fee_points_stored"));\n        assert!(body.contains("stellar_fee_tracker_current_avg_fee"));\n        assert!(body.contains("stellar_fee_tracker_spikes_detected_total"));\n        assert!(body.contains("stellar_fee_tracker_recommendations_total"));\n        assert!(body.contains("stellar_fee_tracker_recommendation_errors_total"));\n    }\n\n    #[tokio::test]\n    async fn polls_total_incremented_value_appears_in_output() {\n        let (app, metrics) = make_metrics_app().await;\n        metrics.polls_total.inc_by(5.0);\n\n        let req = Request::builder()\n            .method(Method::GET)\n            .uri("/metrics")\n            .body(Body::empty())\n            .unwrap();\n        let resp = app.oneshot(req).await.unwrap();\n        let bytes = resp.into_body().collect().await.unwrap().to_bytes();\n        let body = String::from_utf8(bytes.to_vec()).unwrap();\n\n        // Prometheus text format: metric_name value\n\n        assert!(body.contains("stellar_fee_tracker_polls_total 5"));\n    }\n}\n
+//! Prometheus metrics registry for the Stellar fee tracker.
+//!
+//! [] owns all registered metrics and the [] they
+//! belong to. Construct it once at startup, wrap in , and pass it
+//! to the scheduler and HTTP middleware.
+//!
+//! Exposed at  in Prometheus text exposition format
+//! (). The endpoint is intentionally excluded
+//! from API-key auth so it can be scraped by Prometheus / Grafana agents.
+
+use prometheus::{Counter, Gauge, Opts, Registry};
+
+/// All application-level Prometheus metrics.
+///
+/// Only metrics that are actively incremented are registered here.
+/// Registering metrics that are never written produces misleading zeros
+/// in Prometheus/Grafana dashboards.
+pub struct AppMetrics {
+    /// Total number of Horizon polling attempts (success + failure).
+    pub polls_total: Counter,
+    /// Total number of failed Horizon polling attempts.
+    pub poll_errors_total: Counter,
+    /// Current number of fee data points held in the in-memory store.
+    pub fee_points_stored: Gauge,
+    /// Latest short-term rolling average fee (in stroops).
+    pub current_avg_fee: Gauge,
+    /// Total number of fee spikes detected by the insights engine.
+    pub spikes_detected_total: Counter,
+    /// Total number of fee recommendation requests.
+    pub recommendations_total: Counter,
+    /// Total number of failed fee recommendation requests.
+    pub recommendation_errors_total: Counter,
+    /// The registry that owns all of the above metrics.
+    pub registry: Registry,
+}
+
+impl AppMetrics {
+    /// Create and register all metrics. Returns an error if any metric
+    /// name is invalid or duplicated (should not happen in practice).
+    pub fn new() -> Result<Self, prometheus::Error> {
+        let registry = Registry::new();
+
+        let polls_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_polls_total",
+            "Total Horizon polling attempts",
+        ))?;
+
+        let poll_errors_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_poll_errors_total",
+            "Failed Horizon polling attempts",
+        ))?;
+
+        let fee_points_stored = Gauge::with_opts(Opts::new(
+            "stellar_fee_tracker_fee_points_stored",
+            "Current size of the FeeHistoryStore",
+        ))?;
+
+        let current_avg_fee = Gauge::with_opts(Opts::new(
+            "stellar_fee_tracker_current_avg_fee",
+            "Latest short-term rolling average fee in stroops",
+        ))?;
+
+        let spikes_detected_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_spikes_detected_total",
+            "Total fee spikes detected",
+        ))?;
+
+        let recommendations_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_recommendations_total",
+            "Total fee recommendation requests",
+        ))?;
+
+        let recommendation_errors_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_recommendation_errors_total",
+            "Total failed fee recommendation requests",
+        ))?;
+
+        registry.register(Box::new(polls_total.clone()))?;
+        registry.register(Box::new(poll_errors_total.clone()))?;
+        registry.register(Box::new(fee_points_stored.clone()))?;
+        registry.register(Box::new(current_avg_fee.clone()))?;
+        registry.register(Box::new(spikes_detected_total.clone()))?;
+        registry.register(Box::new(recommendations_total.clone()))?;
+        registry.register(Box::new(recommendation_errors_total.clone()))?;
+
+        Ok(Self {
+            polls_total,
+            poll_errors_total,
+            fee_points_stored,
+            current_avg_fee,
+            spikes_detected_total,
+            recommendations_total,
+            recommendation_errors_total,
+            registry,
+        })
+    }
+
+    /// Render all metrics as Prometheus text format (for the  endpoint).
+    pub fn render(&self) -> Result<String, prometheus::Error> {
+        use prometheus::Encoder;
+        let encoder = prometheus::TextEncoder::new();
+        let metric_families = self.registry.gather();
+        let mut buf = Vec::new();
+        encoder.encode(&metric_families, &mut buf)?;
+        Ok(String::from_utf8(buf).unwrap_or_default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_metrics_register_without_error() {
+        let metrics = AppMetrics::new();
+        assert!(
+            metrics.is_ok(),
+            "AppMetrics::new() failed: {:?}",
+            metrics.err()
+        );
+    }
+
+    #[test]
+    fn render_produces_non_empty_output_after_increment() {
+        let metrics = AppMetrics::new().unwrap();
+        metrics.polls_total.inc();
+        let output = metrics.render().unwrap();
+        assert!(output.contains("stellar_fee_tracker_polls_total"));
+    }
+
+    #[test]
+    fn counters_increment_correctly() {
+        let metrics = AppMetrics::new().unwrap();
+        metrics.polls_total.inc_by(3.0);
+        metrics.poll_errors_total.inc();
+        assert!((metrics.polls_total.get() - 3.0).abs() < f64::EPSILON);
+        assert!((metrics.poll_errors_total.get() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn gauge_set_and_get() {
+        let metrics = AppMetrics::new().unwrap();
+        metrics.fee_points_stored.set(42.0);
+        assert!((metrics.fee_points_stored.get() - 42.0).abs() < f64::EPSILON);
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use axum::{
+        body::Body,
+        http::{Method, Request},
+        response::Response,
+        routing::get,
+        Router,
+    };
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    async fn make_metrics_app() -> (Router, Arc<AppMetrics>) {
+        let metrics = Arc::new(AppMetrics::new().unwrap());
+        let m = metrics.clone();
+        let app = Router::new().route(
+            "/metrics",
+            get(move || {
+                let m2 = m.clone();
+                async move {
+                    match m2.render() {
+                        Ok(body) => Response::builder()
+                            .status(200)
+                            .header("content-type", "text/plain; version=0.0.4")
+                            .body(Body::from(body))
+                            .unwrap(),
+                        Err(_) => Response::builder()
+                            .status(500)
+                            .body(Body::from("error"))
+                            .unwrap(),
+                    }
+                }
+            }),
+        );
+        (app, metrics)
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_returns_200() {
+        let (app, _) = make_metrics_app().await;
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_content_type_is_prometheus_text() {
+        let (app, _) = make_metrics_app().await;
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(ct, "text/plain; version=0.0.4");
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_contains_all_metric_names_after_increment() {
+        let (app, metrics) = make_metrics_app().await;
+
+        // Simulate a poll cycle
+        metrics.polls_total.inc();
+        metrics.poll_errors_total.inc();
+        metrics.fee_points_stored.set(10.0);
+        metrics.current_avg_fee.set(150.5);
+        metrics.spikes_detected_total.inc();
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+        assert!(body.contains("stellar_fee_tracker_polls_total"));
+        assert!(body.contains("stellar_fee_tracker_poll_errors_total"));
+        assert!(body.contains("stellar_fee_tracker_fee_points_stored"));
+        assert!(body.contains("stellar_fee_tracker_current_avg_fee"));
+        assert!(body.contains("stellar_fee_tracker_spikes_detected_total"));
+        assert!(body.contains("stellar_fee_tracker_recommendations_total"));
+        assert!(body.contains("stellar_fee_tracker_recommendation_errors_total"));
+    }
+
+    #[tokio::test]
+    async fn polls_total_incremented_value_appears_in_output() {
+        let (app, metrics) = make_metrics_app().await;
+        metrics.polls_total.inc_by(5.0);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+        // Prometheus text format: metric_name value
+
+        assert!(body.contains("stellar_fee_tracker_polls_total 5"));
+    }
+}
+

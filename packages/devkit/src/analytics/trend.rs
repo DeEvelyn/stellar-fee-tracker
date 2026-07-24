@@ -1,54 +1,96 @@
-/// Direction of a fee trend over a time window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+/// Represents the direction of a fee trend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrendDirection {
-    Up,
-    Down,
+    /// Fees are consistently increasing.
+    Upward,
+    /// Fees are consistently decreasing.
+    Downward,
+    /// Fees are oscillating around a stable mean.
     Sideways,
 }
 
-impl std::fmt::Display for TrendDirection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TrendDirection::Up => write!(f, "up"),
-            TrendDirection::Down => write!(f, "down"),
-            TrendDirection::Sideways => write!(f, "sideways"),
-        }
-    }
+/// A trend analysis result for a fee series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrendAnalysis {
+    /// Overall direction of the trend.
+    pub direction: TrendDirection,
+    /// Slope of the linear regression (fee change per unit time).
+    pub slope: f64,
+    /// R-squared goodness of fit [0.0, 1.0].
+    pub r_squared: f64,
+    /// Mean fee across the analysed window.
+    pub mean: f64,
+    /// Standard deviation of fees across the analysed window.
+    pub std_dev: f64,
 }
 
-/// Determine whether fees are trending up, down, or sideways over a window.
-///
-/// Compares the mean of the first third vs the last third of the window:
-/// - **Up**: `last_mean > first_mean * 1.05`
-/// - **Down**: `last_mean < first_mean * 0.95`
-/// - **Sideways**: within the 5% band
-pub fn detect_trend(fees: &[f64]) -> TrendDirection {
-    if fees.len() < 6 {
-        return TrendDirection::Sideways;
+/// Compute a linear-regression trend over a slice of fee values.
+pub fn analyze_trend(fees: &[f64]) -> TrendAnalysis {
+    let n = fees.len() as f64;
+    if n == 0.0 {
+        return TrendAnalysis {
+            direction: TrendDirection::Sideways,
+            slope: 0.0,
+            r_squared: 0.0,
+            mean: 0.0,
+            std_dev: 0.0,
+        };
     }
 
-    let third = fees.len() / 3;
-    let first_mean = mean(&fees[..third]);
-    let last_mean = mean(&fees[fees.len() - third..]);
+    let mean = fees.iter().sum::<f64>() / n;
+    let variance = fees.iter().map(|f| (f - mean).powi(2)).sum::<f64>() / n;
+    let std_dev = variance.sqrt();
 
-    if first_mean == 0.0 && last_mean == 0.0 {
-        return TrendDirection::Sideways;
+    // Simple linear regression: y = slope * x + intercept
+    let mut sum_xy = 0.0;
+    let mut sum_x2 = 0.0;
+    let mut ss_res = 0.0;
+    let mut ss_tot = 0.0;
+
+    let mean_x = (n - 1.0) / 2.0;
+    for (i, &fee) in fees.iter().enumerate() {
+        let x = i as f64;
+        sum_xy += (x - mean_x) * (fee - mean);
+        sum_x2 += (x - mean_x).powi(2);
     }
 
-    if last_mean > first_mean * 1.05 {
-        TrendDirection::Up
-    } else if last_mean < first_mean * 0.95 {
-        TrendDirection::Down
+    let slope = if sum_x2 > f64::EPSILON {
+        sum_xy / sum_x2
+    } else {
+        0.0
+    };
+
+    let intercept = mean - slope * mean_x;
+
+    for (i, &fee) in fees.iter().enumerate() {
+        let predicted = slope * i as f64 + intercept;
+        ss_res += (fee - predicted).powi(2);
+        ss_tot += (fee - mean).powi(2);
+    }
+
+    let r_squared = if ss_tot > f64::EPSILON {
+        1.0 - ss_res / ss_tot
+    } else {
+        0.0
+    };
+
+    let direction = if slope > 1e-6 {
+        TrendDirection::Upward
+    } else if slope < -1e-6 {
+        TrendDirection::Downward
     } else {
         TrendDirection::Sideways
-    }
-}
+    };
 
-fn mean(slice: &[f64]) -> f64 {
-    if slice.is_empty() {
-        return 0.0;
+    TrendAnalysis {
+        direction,
+        slope,
+        r_squared: r_squared.clamp(0.0, 1.0),
+        mean,
+        std_dev,
     }
-    slice.iter().sum::<f64>() / slice.len() as f64
 }
 
 #[cfg(test)]
@@ -56,50 +98,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn upward_trend() {
-        let fees: Vec<f64> = (0..30).map(|i| 100.0 + i as f64 * 5.0).collect();
-        assert_eq!(detect_trend(&fees), TrendDirection::Up);
+    fn trend_upward() {
+        let fees: Vec<f64> = (0..20).map(|i| 100.0 + i as f64 * 10.0).collect();
+        let result = analyze_trend(&fees);
+        assert_eq!(result.direction, TrendDirection::Upward);
+        assert!(result.slope > 0.0);
     }
 
     #[test]
-    fn downward_trend() {
-        let fees: Vec<f64> = (0..30).map(|i| 300.0 - i as f64 * 5.0).collect();
-        assert_eq!(detect_trend(&fees), TrendDirection::Down);
+    fn trend_downward() {
+        let fees: Vec<f64> = (0..20).map(|i| 200.0 - i as f64 * 10.0).collect();
+        let result = analyze_trend(&fees);
+        assert_eq!(result.direction, TrendDirection::Downward);
+        assert!(result.slope < 0.0);
     }
 
     #[test]
-    fn sideways_trend() {
-        let fees: Vec<f64> = (0..30).map(|_| 100.0).collect();
-        assert_eq!(detect_trend(&fees), TrendDirection::Sideways);
-    }
-
-    #[test]
-    fn too_few_samples() {
-        assert_eq!(detect_trend(&[1.0, 2.0, 3.0]), TrendDirection::Sideways);
-        assert_eq!(detect_trend(&[]), TrendDirection::Sideways);
-    }
-
-    #[test]
-    fn small_increase_is_sideways() {
-        let fees: Vec<f64> = (0..30)
-            .map(|i| 100.0 + (i as f64 * 0.1))
-            .collect();
-        assert_eq!(detect_trend(&fees), TrendDirection::Sideways);
-    }
-
-    #[test]
-    fn large_increase_is_up() {
-        let mut fees: Vec<f64> = (0..30).map(|_| 100.0).collect();
-        for i in 20..30 {
-            fees[i] = 200.0;
-        }
-        assert_eq!(detect_trend(&fees), TrendDirection::Up);
-    }
-
-    #[test]
-    fn trend_display() {
-        assert_eq!(TrendDirection::Up.to_string(), "up");
-        assert_eq!(TrendDirection::Down.to_string(), "down");
-        assert_eq!(TrendDirection::Sideways.to_string(), "sideways");
+    fn trend_empty() {
+        let result = analyze_trend(&[]);
+        assert_eq!(result.direction, TrendDirection::Sideways);
+        assert_eq!(result.slope, 0.0);
     }
 }

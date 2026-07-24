@@ -7,7 +7,8 @@ description = "Developer toolkit for testing and simulating the Stellar fee trac
 [dependencies]
 axum = "0.7"
 indicatif = "0.17"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
 rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -42,4 +43,8 @@ harness = false
 
 [[bench]]
 name = "congestion_bench"
+harness = false
+
+[[bench]]
+name = "fee_polling_bench"
 harness = false
