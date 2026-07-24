@@ -41,6 +41,21 @@ pub struct AlertEvent {
     pub triggered_at: String,
 }
 
+/// A persisted recommendation row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recommendation {
+    pub id: Option<i64>,
+    pub recommended_fee: i64,
+    pub confidence: f64,
+    pub target_ledgers: i64,
+    pub network_condition: String,
+    pub percentile_basis: String,
+    pub input_confidence: f64,
+    pub input_ledgers: i64,
+    pub sample_count: i64,
+    pub computed_at: String,
+}
+
 /// Repository for reading and writing fee data to SQLite.
 pub struct FeeRepository {
     pool: SqlitePool,
@@ -418,6 +433,111 @@ impl FeeRepository {
             e
         })?;
         Ok(count)
+    }
+
+    // ---- Recommendations ----
+
+    /// Persist a recommendation row. Returns the new row id.
+    pub async fn insert_recommendation(&self, rec: &Recommendation) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query(
+            "INSERT INTO recommendations
+             (recommended_fee, confidence, target_ledgers, network_condition,
+              percentile_basis, input_confidence, input_ledgers, sample_count, computed_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(rec.recommended_fee)
+        .bind(rec.confidence)
+        .bind(rec.target_ledgers)
+        .bind(&rec.network_condition)
+        .bind(&rec.percentile_basis)
+        .bind(rec.input_confidence)
+        .bind(rec.input_ledgers)
+        .bind(rec.sample_count)
+        .bind(&rec.computed_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Return fee amounts from `fee_data_points` with timestamp >= `since`, sorted ascending.
+    pub async fn get_fees_since(&self, since: DateTime<Utc>) -> Result<Vec<u64>, sqlx::Error> {
+        let since_str = since.to_rfc3339();
+
+        let rows = sqlx::query(
+            "SELECT fee_amount FROM fee_data_points WHERE timestamp >= ? ORDER BY fee_amount ASC",
+        )
+        .bind(&since_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let fees = rows
+            .into_iter()
+            .filter_map(|row| {
+                use sqlx::Row;
+                row.try_get::<i64, _>("fee_amount")
+                    .map(|v| v as u64)
+                    .ok()
+            })
+            .collect();
+
+        Ok(fees)
+    }
+
+    /// Query the most recent `limit` recommendation rows, newest first.
+    pub async fn query_recent_recommendations(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<Recommendation>, sqlx::Error> {
+        let limit = limit.clamp(1, 100);
+
+        let rows = sqlx::query(
+            "SELECT id, recommended_fee, confidence, target_ledgers, network_condition,
+                    percentile_basis, input_confidence, input_ledgers, sample_count, computed_at
+             FROM recommendations
+             ORDER BY computed_at DESC
+             LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let recs = rows
+            .into_iter()
+            .filter_map(|row| {
+                use sqlx::Row;
+                macro_rules! col {
+                    ($col:literal, $T:ty) => {
+                        match row.try_get::<$T, _>($col) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::error!(
+                                    "recommendations row decode error (column {}): {}",
+                                    $col,
+                                    e
+                                );
+                                return None;
+                            }
+                        }
+                    };
+                }
+
+                Some(Recommendation {
+                    id: Some(col!("id", i64)),
+                    recommended_fee: col!("recommended_fee", i64),
+                    confidence: col!("confidence", f64),
+                    target_ledgers: col!("target_ledgers", i64),
+                    network_condition: col!("network_condition", String),
+                    percentile_basis: col!("percentile_basis", String),
+                    input_confidence: col!("input_confidence", f64),
+                    input_ledgers: col!("input_ledgers", i64),
+                    sample_count: col!("sample_count", i64),
+                    computed_at: col!("computed_at", String),
+                })
+            })
+            .collect();
+
+        Ok(recs)
     }
 }
 

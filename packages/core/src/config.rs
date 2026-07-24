@@ -2,6 +2,7 @@ use std::env;
 
 use crate::cli::Cli;
 use crate::insights::SpikeSeverity;
+use crate::recommendation::types::RecommendationConfig;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -19,6 +20,7 @@ pub struct Config {
     pub base_retry_delay_ms: u64,
     pub database_url: String,
     pub storage_retention_days: u64,
+    pub recommendation: RecommendationConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +158,25 @@ impl Config {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(7);
 
+        // -------- Recommendation config --------
+        let recommendation = RecommendationConfig {
+            default_confidence: get("REC_DEFAULT_CONFIDENCE")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.95),
+            default_ledgers: get("REC_DEFAULT_LEDGERS")
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(2),
+            history_window_secs: get("REC_HISTORY_WINDOW_SECS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(3600),
+            cache_ttl_secs: get("REC_CACHE_TTL_SECS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(10),
+            min_sample_count: get("REC_MIN_SAMPLE_COUNT")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(50),
+        };
+
         Ok(Self {
             stellar_network,
             horizon_url,
@@ -171,6 +192,7 @@ impl Config {
             base_retry_delay_ms,
             database_url,
             storage_retention_days,
+            recommendation,
         })
     }
 }
