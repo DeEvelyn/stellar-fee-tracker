@@ -84,3 +84,56 @@ fn wma_most_recent_weighted_highest() {
     let sma = RollingWindow::sma(&fees, 3);
     assert!(wma[0] > sma[0]);
 }
+
+// ── Issue #177: stateful RollingWindow tests ──────────────────────────────────
+
+#[test]
+fn push_returns_none_until_window_full() {
+    let mut rw = RollingWindow::new(3);
+    assert!(rw.push(1.0).is_none());
+    assert!(rw.push(2.0).is_none());
+    // Third push fills the window
+    let sma = rw.push(3.0);
+    assert!(sma.is_some());
+    assert!((sma.unwrap() - 2.0).abs() < 1e-9);
+}
+
+#[test]
+fn push_beyond_capacity_evicts_oldest() {
+    let mut rw = RollingWindow::new(3);
+    rw.push(10.0);
+    rw.push(20.0);
+    rw.push(30.0); // window full: [10, 20, 30], sma = 20
+                   // Push 40 — evicts 10 → [20, 30, 40], sma = 30
+    let sma = rw.push(40.0);
+    assert!(sma.is_some());
+    assert!((sma.unwrap() - 30.0).abs() < 1e-9);
+}
+
+#[test]
+fn push_window_of_one_always_returns_that_value() {
+    let mut rw = RollingWindow::new(1);
+    let v1 = rw.push(5.0);
+    assert!(v1.is_some());
+    assert!((v1.unwrap() - 5.0).abs() < 1e-9);
+    let v2 = rw.push(99.0);
+    assert!(v2.is_some());
+    assert!((v2.unwrap() - 99.0).abs() < 1e-9);
+}
+
+#[test]
+fn sma_empty_slice_returns_empty() {
+    assert!(RollingWindow::sma(&[], 3).is_empty());
+}
+
+#[test]
+fn sma_sum_and_len_accuracy() {
+    // sma([1,2,3,4,5], window=2): [1.5, 2.5, 3.5, 4.5]
+    let fees = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let result = RollingWindow::sma(&fees, 2);
+    assert_eq!(result.len(), 4);
+    assert!((result[0] - 1.5).abs() < 1e-9);
+    assert!((result[1] - 2.5).abs() < 1e-9);
+    assert!((result[2] - 3.5).abs() < 1e-9);
+    assert!((result[3] - 4.5).abs() < 1e-9);
+}

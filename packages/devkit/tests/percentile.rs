@@ -82,3 +82,42 @@ fn nearest_rank_vs_interpolation_same_on_exact_ranks() {
         );
     }
 }
+
+// ── Issue #177: p0/p25/p50/p75/p100 and single-element coverage ───────────────
+
+#[test]
+fn nearest_rank_p0_p25_p50_p75_p100_known_slice() {
+    // Sorted slice [10, 20, 30, 40, 50, 60, 70, 80]
+    let data = [10u64, 20, 30, 40, 50, 60, 70, 80];
+    assert_eq!(Percentile::nearest_rank(&data, 0), 10);
+    assert_eq!(Percentile::nearest_rank(&data, 25), 20);
+    assert_eq!(Percentile::nearest_rank(&data, 50), 40);
+    assert_eq!(Percentile::nearest_rank(&data, 75), 60);
+    assert_eq!(Percentile::nearest_rank(&data, 100), 80);
+}
+
+#[test]
+fn interpolation_p0_p25_p50_p75_p100_known_slice() {
+    let data = [10u64, 20, 30, 40, 50, 60, 70, 80];
+    assert_eq!(Percentile::linear_interpolation(&data, 0), 10);
+    assert_eq!(Percentile::linear_interpolation(&data, 100), 80);
+    // p50 should be between 40 and 50
+    let p50 = Percentile::linear_interpolation(&data, 50);
+    assert!((40..=50).contains(&p50), "p50={p50} not in [40,50]");
+}
+
+#[test]
+fn nearest_rank_single_element_all_percentiles() {
+    assert_eq!(Percentile::nearest_rank(&[99], 0), 99);
+    assert_eq!(Percentile::nearest_rank(&[99], 25), 99);
+    assert_eq!(Percentile::nearest_rank(&[99], 75), 99);
+    assert_eq!(Percentile::nearest_rank(&[99], 100), 99);
+}
+
+#[test]
+fn interpolation_single_element_all_percentiles() {
+    assert_eq!(Percentile::linear_interpolation(&[42], 0), 42);
+    assert_eq!(Percentile::linear_interpolation(&[42], 25), 42);
+    assert_eq!(Percentile::linear_interpolation(&[42], 75), 42);
+    assert_eq!(Percentile::linear_interpolation(&[42], 100), 42);
+}

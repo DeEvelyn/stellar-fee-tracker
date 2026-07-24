@@ -9,6 +9,7 @@ mod insights;
 mod logging;
 mod metrics;
 mod middleware;
+mod recommendation;
 mod repository;
 mod scheduler;
 mod services;
@@ -34,6 +35,7 @@ use crate::logging::init_logging;
 use crate::metrics::AppMetrics;
 use crate::middleware::auth::require_api_key;
 use crate::middleware::rate_limit::{enforce_rate_limit, RateLimitState};
+use crate::recommendation::engine::FeeRecommendationEngine;
 use crate::repository::FeeRepository;
 use crate::scheduler::run_fee_polling_with_retry;
 use crate::services::horizon::HorizonClient;
@@ -180,9 +182,9 @@ async fn main() {
     //
     // Route tiers (from least to most restricted):
     //
-    //  /health   — no rate limit, no auth (must always respond for load-balancer probes)
-    //  /metrics  — rate limited, NO API-key auth (must be scrapeable by Prometheus agents)
-    //  all else  — rate limited + optional API-key auth
+    //  /health   \u2014 no rate limit, no auth (must always respond for load-balancer probes)
+    //  /metrics  \u2014 rate limited, NO API-key auth (must be scrapeable by Prometheus agents)
+    //  all else  \u2014 rate limited + optional API-key auth
     //
     // fees routes get shared state (Horizon client, store, insights engine)
     // insights routes get Arc<RwLock<FeeInsightsEngine>> as their own state
@@ -200,8 +202,29 @@ async fn main() {
         }));
 
     // Business routes that require optional API-key auth.
+    let recommendation_engine = FeeRecommendationEngine::new(
+        fee_store.clone(),
+        Some(insights_engine.clone()),
+    );
+    let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
+        engine: recommendation_engine,
+        metrics: Some(app_metrics.clone()),
+    });
+    let recommendation_router = Router::new()
+        .route(
+            "/fees/recommend",
+            axum::routing::get(api::recommendation::get_recommend)
+                .post(api::recommendation::recommend),
+        )
+        .route(
+            "/fees/recommend/history",
+            axum::routing::get(api::recommendation::recommend_history),
+        )
+        .with_state(recommendation_state);
+
     let api_routes = Router::new()
         .merge(fees_router)
+        .merge(recommendation_router)
         .merge(api::insights::create_insights_router(
             insights_engine.clone(),
         ))
@@ -325,3 +348,4 @@ async fn main() {
 
     tracing::info!("Application shut down cleanly");
 }
+
