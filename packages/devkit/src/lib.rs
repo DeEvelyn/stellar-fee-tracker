@@ -1,7 +1,11 @@
 pub mod analysis;
+pub mod analytics;
 pub mod cli;
+pub mod data_quality;
 pub mod error;
 pub mod harness;
-pub mod resilience;
+pub mod monitoring;
 pub mod simulation;
+pub mod test_helpers;
 pub mod types;
+pub mod utilities;

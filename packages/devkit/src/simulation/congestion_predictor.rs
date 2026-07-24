@@ -25,13 +25,22 @@ impl CongestionPredictor {
 }
 
 /// Input data for weighted congestion scoring.
+///
+/// # Fields
+///
+/// * `recent_avg_fee` – Average fee over a recent window (in stroops).
+/// * `capacity_usage` – Ledger capacity usage as a fraction (0.0–1.0).
+/// * `spike_count_1h` – Number of fee spikes observed in the last hour.
+/// * `trend` – Recent fee trend direction (`"rising"`, `"stable"`, or `"falling"`).
 pub struct CongestionInput {
     /// Average fee over a recent window (in stroops).
-    pub recent_fee_window: f64,
+    pub recent_avg_fee: f64,
     /// Ledger capacity usage as a fraction (0.0–1.0).
     pub capacity_usage: f64,
-    /// Number of fee spikes observed in the window.
-    pub spike_count: u32,
+    /// Number of fee spikes observed in the last hour.
+    pub spike_count_1h: u32,
+    /// Recent fee trend direction ("rising", "stable", or "falling").
+    pub trend: String,
 }
 
 /// Congestion severity label derived from a weighted score.
@@ -44,10 +53,22 @@ pub enum CongestionLabel {
 }
 
 /// Returns a congestion score in [0.0, 1.0] based on weighted inputs.
+///
+/// Weights are assigned as follows:
+/// - `capacity_usage`: 45 %
+/// - `recent_avg_fee`: 25 %
+/// - `spike_count_1h`: 20 %
+/// - `trend`:         10 %
 pub fn congestion_score(input: &CongestionInput) -> f64 {
-    let fee_score = (input.recent_fee_window / 500_000.0).clamp(0.0, 1.0);
-    let spike_score = (input.spike_count as f64 / 10.0).clamp(0.0, 1.0);
-    let score = 0.5 * input.capacity_usage + 0.3 * fee_score + 0.2 * spike_score;
+    let fee_score = (input.recent_avg_fee / 500_000.0).clamp(0.0, 1.0);
+    let spike_score = (input.spike_count_1h as f64 / 10.0).clamp(0.0, 1.0);
+    let trend_score = match input.trend.as_str() {
+        "rising" => 0.6,
+        "falling" => -0.2,
+        _ => 0.0,
+    };
+    let score =
+        0.45 * input.capacity_usage + 0.25 * fee_score + 0.20 * spike_score + 0.10 * trend_score;
     score.clamp(0.0, 1.0)
 }
 
