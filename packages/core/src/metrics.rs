@@ -1,11 +1,11 @@
 //! Prometheus metrics registry for the Stellar fee tracker.
 //!
-//! [`AppMetrics`] owns all registered metrics and the [`Registry`] they
-//! belong to. Construct it once at startup, wrap in `Arc`, and pass it
+//! [] owns all registered metrics and the [] they
+//! belong to. Construct it once at startup, wrap in , and pass it
 //! to the scheduler and HTTP middleware.
 //!
-//! Exposed at `GET /metrics` in Prometheus text exposition format
-//! (`text/plain; version=0.0.4`). The endpoint is intentionally excluded
+//! Exposed at  in Prometheus text exposition format
+//! (). The endpoint is intentionally excluded
 //! from API-key auth so it can be scraped by Prometheus / Grafana agents.
 
 use prometheus::{Counter, Gauge, Opts, Registry};
@@ -26,6 +26,10 @@ pub struct AppMetrics {
     pub current_avg_fee: Gauge,
     /// Total number of fee spikes detected by the insights engine.
     pub spikes_detected_total: Counter,
+    /// Total number of fee recommendation requests.
+    pub recommendations_total: Counter,
+    /// Total number of failed fee recommendation requests.
+    pub recommendation_errors_total: Counter,
     /// The registry that owns all of the above metrics.
     pub registry: Registry,
 }
@@ -61,11 +65,23 @@ impl AppMetrics {
             "Total fee spikes detected",
         ))?;
 
+        let recommendations_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_recommendations_total",
+            "Total fee recommendation requests",
+        ))?;
+
+        let recommendation_errors_total = Counter::with_opts(Opts::new(
+            "stellar_fee_tracker_recommendation_errors_total",
+            "Total failed fee recommendation requests",
+        ))?;
+
         registry.register(Box::new(polls_total.clone()))?;
         registry.register(Box::new(poll_errors_total.clone()))?;
         registry.register(Box::new(fee_points_stored.clone()))?;
         registry.register(Box::new(current_avg_fee.clone()))?;
         registry.register(Box::new(spikes_detected_total.clone()))?;
+        registry.register(Box::new(recommendations_total.clone()))?;
+        registry.register(Box::new(recommendation_errors_total.clone()))?;
 
         Ok(Self {
             polls_total,
@@ -73,11 +89,13 @@ impl AppMetrics {
             fee_points_stored,
             current_avg_fee,
             spikes_detected_total,
+            recommendations_total,
+            recommendation_errors_total,
             registry,
         })
     }
 
-    /// Render all metrics as Prometheus text format (for the `/metrics` endpoint).
+    /// Render all metrics as Prometheus text format (for the  endpoint).
     pub fn render(&self) -> Result<String, prometheus::Error> {
         use prometheus::Encoder;
         let encoder = prometheus::TextEncoder::new();
@@ -222,6 +240,8 @@ mod integration_tests {
         assert!(body.contains("stellar_fee_tracker_fee_points_stored"));
         assert!(body.contains("stellar_fee_tracker_current_avg_fee"));
         assert!(body.contains("stellar_fee_tracker_spikes_detected_total"));
+        assert!(body.contains("stellar_fee_tracker_recommendations_total"));
+        assert!(body.contains("stellar_fee_tracker_recommendation_errors_total"));
     }
 
     #[tokio::test]
@@ -238,7 +258,9 @@ mod integration_tests {
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8(bytes.to_vec()).unwrap();
 
-        // Prometheus text format: metric_name value\n
+        // Prometheus text format: metric_name value
+
         assert!(body.contains("stellar_fee_tracker_polls_total 5"));
     }
 }
+

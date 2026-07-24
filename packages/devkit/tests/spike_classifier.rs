@@ -107,3 +107,76 @@ fn detect_escalating_spike_uses_max_severity() {
 fn detect_empty_slice_returns_empty() {
     assert!(SpikeClassifier::detect(&[], 100).is_empty());
 }
+
+// ── Issue #177: edge-case and IQR coverage ────────────────────────────────────
+
+#[test]
+fn iqr_outliers_empty_returns_empty() {
+    assert!(SpikeClassifier::iqr_outliers(&[]).is_empty());
+}
+
+#[test]
+fn iqr_outliers_fewer_than_4_returns_empty() {
+    assert!(SpikeClassifier::iqr_outliers(&[10, 20, 30]).is_empty());
+}
+
+#[test]
+fn iqr_outliers_all_equal_returns_empty() {
+    // All identical values → IQR = 0, no outliers
+    let fees = vec![100u64; 20];
+    assert!(SpikeClassifier::iqr_outliers(&fees).is_empty());
+}
+
+#[test]
+fn iqr_outliers_extreme_high_value_detected() {
+    // One extreme high value among otherwise uniform data
+    let mut fees = vec![100u64; 20];
+    fees[7] = 1_000_000;
+    let outliers = SpikeClassifier::iqr_outliers(&fees);
+    assert!(
+        outliers.contains(&7),
+        "extreme high value at index 7 should be an outlier"
+    );
+}
+
+#[test]
+fn classify_exactly_2x_is_low() {
+    assert_eq!(
+        SpikeClassifier::classify(200, 100),
+        Some(SpikeSeverity::Low)
+    );
+}
+
+#[test]
+fn classify_exactly_5x_is_medium() {
+    assert_eq!(
+        SpikeClassifier::classify(500, 100),
+        Some(SpikeSeverity::Medium)
+    );
+}
+
+#[test]
+fn classify_exactly_10x_is_high() {
+    assert_eq!(
+        SpikeClassifier::classify(1_000, 100),
+        Some(SpikeSeverity::High)
+    );
+}
+
+#[test]
+fn classify_above_50x_is_critical() {
+    // 50× boundary: strictly > 50 → Critical
+    assert_eq!(
+        SpikeClassifier::classify(5_001, 100),
+        Some(SpikeSeverity::Critical)
+    );
+    assert_eq!(
+        SpikeClassifier::classify(10_000, 100),
+        Some(SpikeSeverity::Critical)
+    );
+}
+
+#[test]
+fn classify_just_below_2x_is_none() {
+    assert_eq!(SpikeClassifier::classify(199, 100), None);
+}

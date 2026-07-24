@@ -8,12 +8,13 @@ import type {
   FeeTrendResponse,
   InsightsResponse,
 } from '@/lib/types'
-import { TopBar }          from './TopBar'
-import { StatCards }       from './StatCards'
-import { PercentileRow }   from './PercentileRow'
-import { FeeChart }        from './FeeChart'
-import { TrendPanel }      from './TrendPanel'
-import { RollingAverages } from './RollingAverages'
+import { TopBar }             from './TopBar'
+import { StatCards }          from './StatCards'
+import { PercentileRow }      from './PercentileRow'
+import { RecommendationPanel } from './RecommendationPanel'
+import { FeeChart }           from './FeeChart'
+import { TrendPanel }         from './TrendPanel'
+import { RollingAverages }    from './RollingAverages'
 
 interface DashboardData {
   current:  CurrentFeeResponse  | null
@@ -97,14 +98,17 @@ export function DashboardShell({ initialData }: Props) {
           <PercentileRow percentiles={current.percentiles} tick={tick} />
         )}
 
-        {/* Row 3 — Chart */}
+        {/* Row 3 — Recommendation Panel */}
+        <RecommendationPanel />
+
+        {/* Row 4 — Chart */}
         <FeeChart
           history={history}
           window={window}
           onWindowChange={handleWindowChange}
         />
 
-        {/* Row 4 — Trend + Averages */}
+        {/* Row 5 — Trend + Averages */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <TrendPanel trend={trend} tick={tick} />
           <RollingAverages insights={insights} tick={tick} />
@@ -112,7 +116,7 @@ export function DashboardShell({ initialData }: Props) {
 
         {/* Footer */}
         <div className="text-center text-text-muted text-xs pb-8 font-mono">
-          <span className="text-accent-green/50">●</span>
+          <span className="text-accent-green/50">◆</span>
           {' '}STELLAR TESTNET · POLLING EVERY 10s · BUILT WITH RUST + NEXT.JS
         </div>
       </main>

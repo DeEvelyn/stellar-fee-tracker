@@ -1,2 +1,2 @@
-pub mod bulkhead;
-pub mod timeout;
+pub mod backoff;
+pub mod fallback;

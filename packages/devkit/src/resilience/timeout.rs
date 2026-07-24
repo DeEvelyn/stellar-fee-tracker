@@ -28,3 +28,24 @@ where
         Err(_elapsed) => Err(TimeoutError { elapsed: duration }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fast_operation_completes() {
+        let result = with_timeout(Duration::from_secs(1), || async { 42 }).await;
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn slow_operation_times_out() {
+        let result = with_timeout(Duration::from_millis(10), || async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            42
+        })
+        .await;
+        assert!(result.is_err());
+    }
+}
