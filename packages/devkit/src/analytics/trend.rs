@@ -1,5 +1,42 @@
 use serde::{Deserialize, Serialize};
 
+/// Measure the rate of change in fees: stroops per second over the window
+/// defined by the timestamps in the input slice.
+///
+/// Each element is `(timestamp_ms, fee_amount)`.
+///
+/// Returns 0.0 if the slice is empty, has fewer than 2 points, or the
+/// time window is zero.
+pub fn fee_velocity(fees: &[(u64, u64)], window_secs: u64) -> f64 {
+    if fees.len() < 2 || window_secs == 0 {
+        return 0.0;
+    }
+    // Use only entries that fall within the last `window_secs` of the series.
+    let last_ts = fees.last().unwrap().0;
+    let cutoff_ms = last_ts.saturating_sub(window_secs * 1_000);
+    let window: Vec<_> = fees.iter().filter(|(ts, _)| *ts >= cutoff_ms).collect();
+    if window.len() < 2 {
+        return 0.0;
+    }
+    let first = window.first().unwrap();
+    let last = window.last().unwrap();
+    let dt_secs = (last.0 - first.0) as f64 / 1_000.0;
+    if dt_secs < f64::EPSILON {
+        return 0.0;
+    }
+    (last.1 as f64 - first.1 as f64) / dt_secs
+}
+
+/// Score trend strength in [0.0, 1.0] based on the R² of a linear regression
+/// over the fee sequence.
+///
+/// A value near 1.0 means the trend is near-perfectly linear; 0.0 means no
+/// linear trend.
+pub fn trend_strength_score(fees: &[f64]) -> f64 {
+    analyze_trend(fees).r_squared
+}
+
+
 /// Represents the direction of a fee trend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrendDirection {

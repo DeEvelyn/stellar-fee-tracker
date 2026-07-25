@@ -1,20 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-/// Coefficient of variation: std_dev / mean.
+/// Compute population standard deviation of fee amounts.
 ///
-/// Normalised measure of volatility independent of the fee magnitude.
-/// Returns 0.0 when the mean is zero or the slice is empty.
-pub fn coefficient_of_variation(fees: &[f64]) -> f64 {
+/// Returns 0.0 for empty or single-element slices.
+pub fn fee_std_dev(fees: &[f64]) -> f64 {
     let n = fees.len();
-    if n == 0 {
+    if n < 2 {
         return 0.0;
     }
     let mean = fees.iter().sum::<f64>() / n as f64;
-    if mean.abs() < f64::EPSILON {
-        return 0.0;
-    }
     let variance = fees.iter().map(|f| (f - mean).powi(2)).sum::<f64>() / n as f64;
-    variance.sqrt() / mean
+    variance.sqrt()
 }
 
 /// Bollinger Band values for a single point in the fee series.
