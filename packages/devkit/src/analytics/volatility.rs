@@ -1,5 +1,62 @@
 use serde::{Deserialize, Serialize};
 
+/// Coefficient of variation: std_dev / mean.
+///
+/// Normalised measure of volatility independent of the fee magnitude.
+/// Returns 0.0 when the mean is zero or the slice is empty.
+pub fn coefficient_of_variation(fees: &[f64]) -> f64 {
+    let n = fees.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let mean = fees.iter().sum::<f64>() / n as f64;
+    if mean.abs() < f64::EPSILON {
+        return 0.0;
+    }
+    let variance = fees.iter().map(|f| (f - mean).powi(2)).sum::<f64>() / n as f64;
+    variance.sqrt() / mean
+}
+
+/// Bollinger Band values for a single point in the fee series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BollingerPoint {
+    /// Simple moving average over the window ending at this point.
+    pub sma: f64,
+    /// Upper band: sma + 2σ.
+    pub upper_band: f64,
+    /// Lower band: sma − 2σ.
+    pub lower_band: f64,
+    /// Bandwidth: upper_band − lower_band.
+    pub bandwidth: f64,
+}
+
+/// Compute Bollinger Bands (SMA ± 2σ) over a rolling `window` for the fee series.
+///
+/// Returns one [`BollingerPoint`] per fee value. For indices where fewer than
+/// `window` values are available the calculation uses all values up to that index.
+pub fn bollinger_bands(fees: &[f64], window: usize) -> Vec<BollingerPoint> {
+    let window = window.max(1);
+    fees.iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let start = if i + 1 >= window { i + 1 - window } else { 0 };
+            let slice = &fees[start..=i];
+            let n = slice.len() as f64;
+            let sma = slice.iter().sum::<f64>() / n;
+            let variance = slice.iter().map(|f| (f - sma).powi(2)).sum::<f64>() / n;
+            let std_dev = variance.sqrt();
+            let upper_band = sma + 2.0 * std_dev;
+            let lower_band = sma - 2.0 * std_dev;
+            BollingerPoint {
+                sma,
+                upper_band,
+                lower_band,
+                bandwidth: upper_band - lower_band,
+            }
+        })
+        .collect()
+}
+
 /// Volatility metrics for a fee series.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolatilityMetrics {

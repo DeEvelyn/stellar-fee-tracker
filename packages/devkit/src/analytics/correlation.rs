@@ -79,3 +79,74 @@ mod tests {
         assert!(r.pearson_r.abs() < 0.5);
     }
 }
+
+/// Compute the Pearson autocorrelation of a fee series at a given `lag`.
+///
+/// Returns the Pearson correlation coefficient between `fees` and `fees` shifted
+/// by `lag` positions, in the range [-1.0, 1.0].
+///
+/// Returns 1.0 when `lag == 0` (a series is perfectly correlated with itself),
+/// and 0.0 when `lag >= fees.len()`.
+pub fn autocorrelation(fees: &[f64], lag: usize) -> f64 {
+    let n = fees.len();
+    if lag == 0 {
+        return 1.0;
+    }
+    if lag >= n {
+        return 0.0;
+    }
+    let x = &fees[..n - lag];
+    let y = &fees[lag..];
+    pearson_correlation(x, y).pearson_r
+}
+
+/// Measure the Pearson correlation between `fee_amount` and
+/// `ledger_capacity_usage` across a paired window.
+///
+/// `fees` and `capacity` must be the same length; shorter slices are trimmed
+/// to the minimum length. Returns a [`CorrelationResult`] using the standard
+/// Pearson formula.
+pub fn cross_correlation(fees: &[f64], capacity: &[f64]) -> CorrelationResult {
+    pearson_correlation(fees, capacity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn perfect_positive_correlation() {
+        let x: Vec<f64> = (0..10).map(|i| i as f64).collect();
+        let y: Vec<f64> = (0..10).map(|i| i as f64 * 2.0).collect();
+        let r = pearson_correlation(&x, &y);
+        assert!((r.pearson_r - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn perfect_negative_correlation() {
+        let x: Vec<f64> = (0..10).map(|i| i as f64).collect();
+        let y: Vec<f64> = (0..10).map(|i| 10.0 - i as f64).collect();
+        let r = pearson_correlation(&x, &y);
+        assert!((r.pearson_r - (-1.0)).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn uncorrelated() {
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let y = vec![3.0, 1.0, 4.0, 2.0];
+        let r = pearson_correlation(&x, &y);
+        assert!(r.pearson_r.abs() < 0.5);
+    }
+
+    #[test]
+    fn autocorrelation_lag_zero_is_one() {
+        let fees: Vec<f64> = (0..20).map(|i| i as f64 * 5.0).collect();
+        assert!((autocorrelation(&fees, 0) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn autocorrelation_lag_too_large_is_zero() {
+        let fees = vec![1.0, 2.0, 3.0];
+        assert_eq!(autocorrelation(&fees, 10), 0.0);
+    }
+}
