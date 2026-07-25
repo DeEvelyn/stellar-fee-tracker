@@ -240,3 +240,107 @@ Benchmarks compile and run on every PR touching `packages/devkit/` via the [Devk
 [dev-dependencies]
 stellar-devkit = { path = "../devkit" }
 ```
+
+## Fee Analytics
+
+The `analytics` module provides composable, zero-dependency fee analysis functions for trend detection, volatility measurement, correlation, forecasting, and regime change detection.
+
+### Modules
+
+| Sub-module | Key exports | Description |
+|---|---|---|
+| `analytics::trend` | `analyze_trend`, `fee_velocity`, `trend_strength_score` | Linear regression trend detection and rate-of-change measurement |
+| `analytics::volatility` | `compute_volatility`, `bollinger_bands`, `coefficient_of_variation` | Standard deviation, CV, and Bollinger Bands (SMA ± 2σ) |
+| `analytics::correlation` | `pearson_correlation`, `autocorrelation`, `cross_correlation` | Pearson correlation, lag-based autocorrelation, fee-capacity correlation |
+| `analytics::forecaster` | `forecast`, `forecast_linear`, `forecast_holt`, `confidence_intervals` | Linear extrapolation, Holt double-exponential smoothing, and CI bands |
+| `analytics::regime` | `detect_regime_change`, `ks_statistic` | KS-statistic regime shift detector (flags when KS > 0.3) |
+
+### Trend Detection
+
+```rust
+use stellar_devkit::analytics::trend::{analyze_trend, fee_velocity, trend_strength_score, TrendDirection};
+
+let fees: Vec<f64> = (0..100).map(|i| 100.0 + i as f64 * 5.0).collect();
+let trend = analyze_trend(&fees);
+assert_eq!(trend.direction, TrendDirection::Upward);
+println!("R²: {:.3}", trend.r_squared);            // ~1.0 for perfect line
+println!("Strength: {:.3}", trend_strength_score(&fees)); // same as r_squared
+
+// Rate of change in stroops/sec
+let timestamped: Vec<(u64, u64)> = (0..10)
+    .map(|i| (i as u64 * 1_000, 100 + i as u64 * 50))
+    .collect();
+let velocity = fee_velocity(&timestamped, 30);
+println!("Velocity: {:.1} stroops/sec", velocity);
+```
+
+### Volatility Measures
+
+```rust
+use stellar_devkit::analytics::volatility::{compute_volatility, bollinger_bands, coefficient_of_variation};
+
+let fees: Vec<f64> = (0..200).map(|i| 200.0 + (i as f64 * 0.3).sin() * 50.0).collect();
+
+let v = compute_volatility(&fees);
+println!("Std dev: {:.2}", v.standard_deviation);
+println!("CV:      {:.4}", v.coefficient_of_variation); // scale-invariant
+
+// Standalone CV function
+let cv = coefficient_of_variation(&fees);
+
+// Bollinger Bands with window=20
+let bands = bollinger_bands(&fees, 20);
+for b in &bands {
+    assert!(b.upper_band >= b.sma && b.sma >= b.lower_band);
+}
+```
+
+### Forecasting
+
+```rust
+use stellar_devkit::analytics::forecaster::{forecast_linear, forecast_holt, confidence_intervals};
+
+let fees: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 3.0).collect();
+
+// Linear extrapolation
+let linear = forecast_linear(&fees, 10);
+
+// Holt's double exponential smoothing (alpha=0.3, beta=0.1)
+let holt = forecast_holt(&fees, 10, 0.3, 0.1);
+
+// 80% and 95% confidence intervals around the linear forecast
+let cis = confidence_intervals(&linear, /* residual_variance= */ 25.0);
+println!("Next step: {:.1} ± {:.1} (95%)", cis[0].predicted, cis[0].upper_95 - cis[0].predicted);
+```
+
+### Regime Change Detection
+
+```rust
+use stellar_devkit::analytics::regime::detect_regime_change;
+
+// Rolling 1-hour window vs 24-hour baseline
+let fees_1h: Vec<f64>  = vec![50_000.0; 100]; // sustained spike
+let fees_24h: Vec<f64> = (0..1000).map(|_| 200.0).collect(); // normal baseline
+
+if detect_regime_change(&fees_1h, &fees_24h) {
+    println!("Regime change detected — fee distribution has fundamentally shifted");
+}
+```
+
+### Correlation
+
+```rust
+use stellar_devkit::analytics::correlation::{pearson_correlation, autocorrelation, cross_correlation};
+
+let fees: Vec<f64>    = (0..100).map(|i| 100.0 + (i as f64 * 0.2).sin() * 50.0).collect();
+let capacity: Vec<f64> = (0..100).map(|i| 0.5 + (i as f64 * 0.2).sin() * 0.3).collect();
+
+// Fee-capacity cross-correlation
+let r = cross_correlation(&fees, &capacity);
+println!("Fee-capacity Pearson r: {:.3}", r.pearson_r);
+
+// Autocorrelation at lag 5
+let ac = autocorrelation(&fees, 5);
+println!("Autocorrelation at lag 5: {:.3}", ac);
+assert_eq!(autocorrelation(&fees, 0), 1.0); // lag=0 is always 1.0
+```
