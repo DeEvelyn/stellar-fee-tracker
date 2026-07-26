@@ -6,6 +6,7 @@ pub mod data_quality;
 pub mod error;
 pub mod harness;
 pub mod monitoring;
+pub mod resilience;
 pub mod sandbox;
 pub mod simulation;
 pub mod test_helpers;
