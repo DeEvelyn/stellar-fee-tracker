@@ -48,3 +48,7 @@ harness = false
 [[bench]]
 name = "fee_polling_bench"
 harness = false
+
+[[bench]]
+name = "analytics_bench"
+harness = false
