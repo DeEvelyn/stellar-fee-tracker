@@ -194,6 +194,10 @@ async fn main() {
         .route("/fees/current", get(api::fees::current_fees))
         .route("/fees/history", get(api::fees::fee_history))
         .route("/fees/trend", get(api::fees::fee_trend))
+        .route(
+            "/fees/transaction/:hash",
+            get(api::fees::transaction_fee_lookup),
+        )
         .with_state(Arc::new(api::fees::FeesApiState {
             fee_stats_provider: Some(fee_stats_provider),
             fee_cache: current_fees_cache,
