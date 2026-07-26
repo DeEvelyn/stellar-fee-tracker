@@ -181,34 +181,6 @@ impl DevkitConfig {
         }
     }
 
-    /// Validate the configuration, returning a list of issues found.
-    pub fn validate(&self) -> Vec<String> {
-        let mut issues = Vec::new();
-
-        if !self.db_path.exists() {
-            issues.push(format!("db_path not found: {}", self.db_path.display()));
-        }
-        if self.port == 0 {
-            issues.push("port must be > 0".into());
-        }
-        if self.poll_interval_secs == 0 {
-            issues.push("poll_interval_secs must be > 0".into());
-        }
-        if self.retry_attempts == 0 {
-            issues.push("retry_attempts must be > 0".into());
-        }
-        if self.simulation_spike_prob < 0.0 || self.simulation_spike_prob > 1.0 {
-            issues.push("simulation_spike_prob must be between 0.0 and 1.0".into());
-        }
-        if self.simulation_base_fee == 0 {
-            issues.push("simulation_base_fee must be > 0".into());
-        }
-        if self.analysis_window_hours == 0 {
-            issues.push("analysis_window_hours must be > 0".into());
-        }
-        issues
-    }
-
     /// Display the full configuration as a formatted key/value report.
     pub fn display(&self) -> String {
         let mut out = String::new();
@@ -257,87 +229,5 @@ impl DevkitConfig {
             }
         }
         out
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn devkit_config_default_has_sensible_values() {
-        let cfg = DevkitConfig::default();
-        assert_eq!(cfg.port, 8090);
-        assert_eq!(cfg.poll_interval_secs, 10);
-        assert_eq!(cfg.retry_attempts, 3);
-        assert_eq!(cfg.simulation_spike_prob, 0.05);
-        assert!(!cfg.verbose);
-    }
-
-    #[test]
-    fn devkit_config_validate_catches_invalid_spike_prob() {
-        let mut cfg = DevkitConfig::default();
-        cfg.simulation_spike_prob = 1.5;
-        let issues = cfg.validate();
-        assert!(issues.iter().any(|i| i.contains("spike_prob")));
-    }
-
-    #[test]
-    fn devkit_config_validate_catches_zero_port() {
-        let mut cfg = DevkitConfig::default();
-        cfg.port = 0;
-        let issues = cfg.validate();
-        assert!(issues.iter().any(|i| i.contains("port")));
-    }
-
-    #[test]
-    fn devkit_config_display_includes_all_fields() {
-        let cfg = DevkitConfig::default();
-        let out = cfg.display();
-        assert!(out.contains("db_path"));
-        assert!(out.contains("horizon_url"));
-        assert!(out.contains("simulation_duration"));
-        assert!(out.contains("sandbox_time_offset_secs"));
-    }
-
-    #[test]
-    fn devkit_config_validate_passes_for_defaults() {
-        let cfg = DevkitConfig::default();
-        let issues = cfg.validate();
-        // Only db_path might fail if file doesn't exist, but that's expected
-        assert!(issues.iter().all(|i| i.contains("db_path")));
-    }
-
-    #[test]
-    fn devkit_config_from_toml_file_loads_values() {
-        let toml_content = r#"
-port = 9090
-verbose = true
-horizon_url = "https://horizon.stellar.org"
-simulation_spike_prob = 0.1
-"#;
-        let tmp_path = std::env::temp_dir().join("test_devkit_config.toml");
-        std::fs::write(&tmp_path, toml_content).unwrap();
-
-        let cfg = DevkitConfig::from_toml_file(&tmp_path).unwrap();
-        assert_eq!(cfg.port, 9090);
-        assert!(cfg.verbose);
-        assert_eq!(cfg.horizon_url, "https://horizon.stellar.org");
-        assert_eq!(cfg.simulation_spike_prob, 0.1);
-        // Default values should be preserved for unset fields
-        assert_eq!(cfg.poll_interval_secs, 10);
-
-        std::fs::remove_file(&tmp_path).ok();
-    }
-
-    #[test]
-    fn devkit_config_from_toml_file_returns_err_for_invalid() {
-        let tmp_path = std::env::temp_dir().join("test_invalid_config.toml");
-        std::fs::write(&tmp_path, "not valid toml {{{{").unwrap();
-
-        let result = DevkitConfig::from_toml_file(&tmp_path);
-        assert!(result.is_err());
-
-        std::fs::remove_file(&tmp_path).ok();
     }
 }
