@@ -388,6 +388,37 @@ fn trend_strength_to_string(strength: &TrendStrength) -> String {
     .to_string()
 }
 
+#[derive(Debug, Serialize)]
+pub struct TransactionFeeResponse {
+    pub transaction_hash: String,
+    pub fee_amount: u64,
+    pub ledger_sequence: u64,
+    pub timestamp: DateTime<Utc>,
+}
+
+pub async fn transaction_fee_lookup(
+    State(state): State<FeesState>,
+    axum::extract::Path(hash): axum::extract::Path<String>,
+) -> Result<Json<TransactionFeeResponse>, AppError> {
+    let point = {
+        let store = state.fee_store.read().await;
+        store.get_by_hash(&hash)
+    };
+
+    match point {
+        Some(p) => Ok(Json(TransactionFeeResponse {
+            transaction_hash: p.transaction_hash,
+            fee_amount: p.fee_amount,
+            ledger_sequence: p.ledger_sequence,
+            timestamp: p.timestamp,
+        })),
+        None => Err(AppError::Parse(format!(
+            "Transaction not found: {}",
+            hash
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
