@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod analytics;
 pub mod cli;
+pub mod config;
 pub mod data_quality;
 pub mod error;
 pub mod harness;
