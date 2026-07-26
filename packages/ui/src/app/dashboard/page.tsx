@@ -1,8 +1,14 @@
 import { api } from '@/lib/api'
 import { DashboardShell } from '@/components/dashboard/DashboardShell'
+import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
+
+export const metadata: Metadata = {
+  title: 'Dashboard | StellarFees',
+  description: 'Real-time Stellar network fee intelligence dashboard',
+}
 
 async function fetchDashboardData() {
   try {
