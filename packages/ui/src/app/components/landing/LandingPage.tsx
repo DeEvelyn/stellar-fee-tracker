@@ -5,7 +5,7 @@ import { FeatureOrbit } from "./FeatureOrbit";
 import { HowItWorks } from "./HowItWorks";
 import { OpenSourceCTA } from "./OpenSourceCTA";
 import { Footer } from "./Footer";
-import Hero from "./Hero";
+import Hero from "./ui/Hero";
 import StatStrip from "./StatStrip";
 import  Nav  from "./Nav";
 
