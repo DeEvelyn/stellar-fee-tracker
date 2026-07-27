@@ -60,6 +60,7 @@ pub struct FeesApiState {
     pub fee_cache: Arc<Mutex<ResponseCache<CurrentFeeResponse>>>,
     pub fee_store: Arc<RwLock<FeeHistoryStore>>,
     pub insights_engine: Option<Arc<RwLock<FeeInsightsEngine>>>,
+    pub horizon_client: Option<Arc<HorizonClient>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -389,6 +390,67 @@ fn trend_strength_to_string(strength: &TrendStrength) -> String {
 }
 
 #[derive(Debug, Serialize)]
+pub struct AccountFeeHistoryResponse {
+    pub account_id: String,
+    pub transaction_count: usize,
+    pub total_fees: u64,
+    pub avg_fee: f64,
+    pub min_fee: u64,
+    pub max_fee: u64,
+    pub transactions: Vec<AccountTransactionEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccountTransactionEntry {
+    pub hash: String,
+    pub fee_charged: u64,
+    pub ledger: u64,
+    pub created_at: String,
+    pub successful: bool,
+}
+
+pub async fn account_fee_history(
+    State(state): State<FeesState>,
+    axum::extract::Path(account_id): axum::extract::Path<String>,
+) -> Result<Json<AccountFeeHistoryResponse>, AppError> {
+    let horizon = state.horizon_client.as_ref().ok_or_else(|| {
+        AppError::Config("Horizon client missing from fees state".to_string())
+    })?;
+
+    let records = horizon.fetch_account_transactions(&account_id, 100).await?;
+
+    if records.is_empty() {
+        return Err(AppError::Parse(format!(
+            "No transactions found for account: {}",
+            account_id
+        )));
+    }
+
+    let total_fees: u64 = records.iter().map(|r| r.fee_charged).sum();
+    let min_fee = records.iter().map(|r| r.fee_charged).min().unwrap_or(0);
+    let max_fee = records.iter().map(|r| r.fee_charged).max().unwrap_or(0);
+    let avg_fee = total_fees as f64 / records.len() as f64;
+
+    let transactions: Vec<AccountTransactionEntry> = records
+        .iter()
+        .map(|r| AccountTransactionEntry {
+            hash: r.hash.clone(),
+            fee_charged: r.fee_charged,
+            ledger: r.ledger,
+            created_at: r.created_at.clone(),
+            successful: r.successful,
+        })
+        .collect();
+
+    Ok(Json(AccountFeeHistoryResponse {
+        account_id,
+        transaction_count: transactions.len(),
+        total_fees,
+        avg_fee,
+        min_fee,
+        max_fee,
+        transactions,
+    }))
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
     pub fee_amount: u64,
@@ -486,6 +548,7 @@ mod tests {
             fee_cache: default_cache(),
             fee_store: Arc::new(RwLock::new(store)),
             insights_engine: None,
+            horizon_client: None,
         })
     }
 
@@ -495,6 +558,7 @@ mod tests {
             fee_cache: default_cache(),
             fee_store: Arc::new(RwLock::new(FeeHistoryStore::new(100))),
             insights_engine: Some(Arc::new(RwLock::new(engine))),
+            horizon_client: None,
         })
     }
 
@@ -507,6 +571,7 @@ mod tests {
             fee_cache: Arc::new(Mutex::new(ResponseCache::new(ttl))),
             fee_store: Arc::new(RwLock::new(FeeHistoryStore::new(100))),
             insights_engine: None,
+            horizon_client: None,
         })
     }
 
