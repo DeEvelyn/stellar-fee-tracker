@@ -41,3 +41,11 @@ export const api = {
   health:       ()               => get<HealthResponse>('/health'),
   recommend:    (body: RecommendRequest) => post<RecommendResponse>('/fees/recommend', body),
 }
+
+export async function fetchLatestFees(): Promise<CurrentFeeResponse> {
+  return get<CurrentFeeResponse>('/fees/latest')
+}
+
+export async function fetchFeeHistory(window: '1h' | '6h' | '24h' = '1h'): Promise<FeeHistoryResponse> {
+  return get<FeeHistoryResponse>(`/fees/history?window=${window}`)
+}

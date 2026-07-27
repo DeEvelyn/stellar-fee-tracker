@@ -197,6 +197,8 @@ async fn main() {
         .route(
             "/fees/account/:account_id",
             get(api::fees::account_fee_history),
+            "/fees/transaction/:hash",
+            get(api::fees::transaction_fee_lookup),
         )
         .with_state(Arc::new(api::fees::FeesApiState {
             fee_stats_provider: Some(fee_stats_provider),

@@ -94,6 +94,31 @@ pub fn percentile_interpolated(sorted: &[u64], p: u8) -> f64 {
     sorted[lo] as f64 + frac * (sorted[hi] as f64 - sorted[lo] as f64)
 }
 
+/// Nearest-rank percentile of an unsorted slice.
+///
+/// Sorts a copy internally; accepts `f64` percentile values for ergonomics.
+/// Returns 0 for empty slices.
+pub fn percentile_nearest_rank(data: &[u64], p: f64) -> u64 {
+    if data.is_empty() {
+        return 0;
+    }
+    let mut sorted = data.to_vec();
+    sorted.sort_unstable();
+    let p_usize = (p.round() as usize).clamp(1, 100);
+    Percentile::nearest_rank(&sorted, p_usize)
+}
+
+/// Compute a full fee distribution summary for an unsorted slice.
+///
+/// Returns the summary directly; panics only if the slice is empty (callers
+/// should guard with `!data.is_empty()`).
+pub fn fee_distribution_summary(data: &[u64]) -> FeeDistributionSummary {
+    let mut sorted = data.to_vec();
+    sorted.sort_unstable();
+    Percentile::fee_distribution_summary(&sorted)
+        .expect("fee_distribution_summary called on empty data")
+}
+
 // ── P² streaming percentile estimator (Issue #261) ───────────────────────────
 
 /// Streaming percentile estimator using the P² algorithm (Jain & Chlamtac, 1985).

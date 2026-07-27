@@ -76,6 +76,58 @@ export function DashboardShell({ initialData }: Props) {
 
   const { current, history, trend, insights } = data
 
+  const hasLoaded = current !== null || history !== null || trend !== null || insights !== null
+  const isLoading = !hasLoaded && !data.error
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-bg-base grid-bg">
+        <TopBar lastUpdated={lastUpdated} isRefreshing={true} onRefresh={() => {}} />
+        <main className="max-w-[1400px] mx-auto px-4 py-6 space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="card p-5 animate-pulse">
+                <div className="h-3 bg-bg-border rounded w-20 mb-3" />
+                <div className="h-8 bg-bg-border rounded w-24" />
+              </div>
+            ))}
+          </div>
+          <div className="card p-5 animate-pulse">
+            <div className="h-4 bg-bg-border rounded w-48 mb-4" />
+            <div className="grid grid-cols-6 gap-3">
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} className="h-16 bg-bg-border rounded" />
+              ))}
+            </div>
+          </div>
+          <div className="card p-5 animate-pulse h-64" />
+        </main>
+      </div>
+    )
+  }
+
+  if (data.error) {
+    return (
+      <div className="min-h-screen bg-bg-base grid-bg">
+        <TopBar lastUpdated={lastUpdated} isRefreshing={false} onRefresh={() => refresh()} />
+        <main className="max-w-[1400px] mx-auto px-4 py-6">
+          <div className="card p-8 text-center">
+            <div className="text-accent-red text-lg font-display font-bold mb-2">
+              Connection Error
+            </div>
+            <p className="text-text-muted text-sm font-mono mb-4">{data.error}</p>
+            <button
+              onClick={() => refresh()}
+              className="px-4 py-2 rounded bg-accent-green/10 border border-accent-green/30 text-accent-green text-sm font-mono hover:bg-accent-green/20 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-bg-base grid-bg">
       <TopBar

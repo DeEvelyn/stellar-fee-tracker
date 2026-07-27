@@ -112,6 +112,10 @@ impl FeeRecommendationEngine {
         }
     }
 
+    pub async fn get_last_n_fees(&self, n: usize) -> Vec<FeeDataPoint> {
+        self.fee_store.read().await.get_last_n(n)
+    }
+
     async fn fallback_recommendation(
         &self,
         target_ledgers: u32,
