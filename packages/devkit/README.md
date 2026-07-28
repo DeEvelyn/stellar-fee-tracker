@@ -214,6 +214,102 @@ devkit mock --port 8080 --scenario spike
 stellar-devkit = { path = "../devkit" }
 ```
 
+## Sandbox
+
+The `sandbox` module provides a scenario-driven testing DSL for simulating Stellar fee environments in isolation. It lets you compose network conditions, inject fixtures, and run assertions against simulated fee streams.
+
+### Scenarios
+
+Use `Scenario::builder()` to construct reproducible fee scenarios via a builder DSL:
+
+```rust
+use stellar_devkit::sandbox::Scenario;
+
+let scenario = Scenario::builder("my_test")
+    .with_base_fee(200)
+    .with_spike_probability(0.15)
+    .with_ledger_count(500)
+    .with_seed(42)
+    .build();
+```
+
+Each builder method configures a dimension of the simulation. The builder enforces valid ranges and returns errors for out-of-bound values. Once built, a `Scenario` is immutable and can be reused across multiple simulation runs.
+
+### Fixtures
+
+Pre-built fixture profiles capture common network states:
+
+| Fixture | Description |
+|---|---|
+| `Normal` | Low-fee baseline with minimal spikes; ideal for regression testing |
+| `Congested` | Sustained high-fee demand with elevated base fees |
+| `HighVariance` | Wide fee swings and frequent spikes; tests volatility handling |
+| `Recovery` | Starts congested and gradually returns to baseline; tests cooldown logic |
+| `Spike` | Mostly calm with a single sharp fee spike; tests spike detection |
+
+Load a fixture by name:
+
+```rust
+use stellar_devkit::sandbox::fixtures::{Fixture, load_fixture};
+
+let fixture = load_fixture(Fixture::Congested);
+let scenario = fixture.into_scenario();
+```
+
+### Runner
+
+The `Runner` executes a sandbox closure against a scenario, managing the simulation lifecycle:
+
+```rust
+use stellar_devkit::sandbox::{Scenario, Runner};
+
+let scenario = Scenario::builder("example")
+    .with_ledger_count(100)
+    .build();
+
+Runner::new(scenario).run(|ctx| {
+    // ctx provides access to generated fees, timestamps, and metadata
+    assert!(!ctx.fees().is_empty());
+    println!("Simulated {} ledgers", ctx.fees().len());
+});
+```
+
+The runner handles RNG seeding, timestamp generation, and fee model execution internally. The closure receives a `SandboxContext` with read access to all simulation outputs.
+
+### Assertion helpers
+
+The sandbox provides built-in assertion helpers for common test validations:
+
+```rust
+use stellar_devkit::sandbox::assertions::*;
+
+// Assert all fees fall within an expected range
+assert_fee_in_range(&fees, min_stroops, max_stroops);
+
+// Assert the number of spikes matches expectations
+assert_spike_count(&fees, expected_count);
+
+// Assert the quality score exceeds a threshold (0.0–1.0)
+assert_quality_score_above(&fees, 0.8);
+```
+
+### Time travel
+
+Control simulated time to test time-dependent logic:
+
+```rust
+use stellar_devkit::sandbox::time::*;
+
+// Advance the simulation clock by a duration
+advance_time(Duration::from_secs(3600));
+
+// Set the clock to an absolute timestamp
+set_time(1_700_000_000);
+
+// Read the current simulated time
+let now = current_time();
+```
+
 ## Benchmarks
 
 Baseline results measured on reference hardware (Apple M-series, single-core, `cargo bench`):

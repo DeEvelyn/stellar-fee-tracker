@@ -194,11 +194,18 @@ async fn main() {
         .route("/fees/current", get(api::fees::current_fees))
         .route("/fees/history", get(api::fees::fee_history))
         .route("/fees/trend", get(api::fees::fee_trend))
+        .route(
+            "/fees/account/:account_id",
+            get(api::fees::account_fee_history),
+            "/fees/transaction/:hash",
+            get(api::fees::transaction_fee_lookup),
+        )
         .with_state(Arc::new(api::fees::FeesApiState {
             fee_stats_provider: Some(fee_stats_provider),
             fee_cache: current_fees_cache,
             fee_store: fee_store.clone(),
             insights_engine: Some(insights_engine.clone()),
+            horizon_client: Some(horizon_client.clone()),
         }));
 
     // Business routes that require optional API-key auth.

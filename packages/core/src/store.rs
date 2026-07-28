@@ -59,6 +59,11 @@ impl FeeHistoryStore {
         self.data.iter().skip(skip).cloned().collect()
     }
 
+    /// Return the first data point matching the given transaction hash, if any.
+    pub fn get_by_hash(&self, hash: &str) -> Option<FeeDataPoint> {
+        self.data.iter().find(|p| p.transaction_hash == hash).cloned()
+    }
+
     /// Number of data points currently held.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -216,5 +221,30 @@ mod tests {
     fn get_last_n_on_empty_store_returns_empty() {
         let store = FeeHistoryStore::new(10);
         assert!(store.get_last_n(5).is_empty());
+    }
+
+    // ---- get_by_hash ----
+
+    #[test]
+    fn get_by_hash_returns_matching_point() {
+        let mut store = FeeHistoryStore::new(10);
+        store.push(make_point(100, 2));
+        store.push(make_point(200, 1));
+        let result = store.get_by_hash("hash_200");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().fee_amount, 200);
+    }
+
+    #[test]
+    fn get_by_hash_returns_none_when_not_found() {
+        let mut store = FeeHistoryStore::new(10);
+        store.push(make_point(100, 1));
+        assert!(store.get_by_hash("nonexistent").is_none());
+    }
+
+    #[test]
+    fn get_by_hash_on_empty_store_returns_none() {
+        let store = FeeHistoryStore::new(10);
+        assert!(store.get_by_hash("anything").is_none());
     }
 }
