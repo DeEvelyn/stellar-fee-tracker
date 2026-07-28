@@ -29,3 +29,11 @@ impl std::fmt::Display for ConversionError {
 }
 
 impl std::error::Error for ConversionError {}
+
+pub fn stroops_to_xlm(stroops: u64) -> f64 {
+    stroop_to_xlm(stroops)
+}
+
+pub fn xlm_to_stroops(xlm: f64) -> Result<u64, ConversionError> {
+    xlm_to_stroop(xlm)
+}

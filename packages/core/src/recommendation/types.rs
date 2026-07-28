@@ -70,3 +70,6 @@ pub struct RecommendHistoryResponse {
     pub entries: Vec<RecommendHistoryEntry>,
 }
 
+pub type RecommendationRequest = RecommendRequest;
+pub type RecommendationResponse = RecommendResponse;
+

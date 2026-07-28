@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError(pub String);
 
@@ -30,6 +32,25 @@ pub fn parse_window(s: &str) -> Result<Duration, ParseError> {
         "d" => Ok(Duration::from_secs(value * 86400)),
         _ => Err(ParseError(format!("unknown unit '{unit_part}', expected 'h' or 'd'"))),
     }
+}
+
+pub fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+pub fn unix_ms_to_datetime(ms: u64) -> DateTime<Utc> {
+    DateTime::from_timestamp_millis(ms as i64).unwrap_or_default()
+}
+
+pub fn datetime_to_unix_ms(dt: &DateTime<Utc>) -> u64 {
+    dt.timestamp_millis() as u64
+}
+
+pub fn ledger_close_time_to_unix_ms(close_time: u64) -> u64 {
+    close_time * 1000
 }
 
 #[cfg(test)]
