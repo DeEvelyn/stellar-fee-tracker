@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use defaults::{
     DEFAULT_ANALYSIS_WINDOW_HOURS, DEFAULT_BASE_RETRY_DELAY_MS, DEFAULT_DB_PATH,
-    DEFAULT_HORIZON_URL, DEFAULT_PORT, DEFAULT_POLL_INTERVAL_SECS, DEFAULT_RETRY_ATTEMPTS,
+    DEFAULT_HORIZON_URL, DEFAULT_POLL_INTERVAL_SECS, DEFAULT_PORT, DEFAULT_RETRY_ATTEMPTS,
     DEFAULT_SANDBOX_TIME_OFFSET_SECS, DEFAULT_SCENARIO, DEFAULT_SIMULATION_BASE_FEE,
     DEFAULT_SIMULATION_DURATION, DEFAULT_SIMULATION_SPIKE_PROB, DEFAULT_VERBOSE,
 };
@@ -98,7 +98,10 @@ impl DevkitConfig {
             ("base_retry_delay_ms", &self.base_retry_delay_ms.to_string()),
             ("simulation_duration", &self.simulation_duration.to_string()),
             ("simulation_base_fee", &self.simulation_base_fee.to_string()),
-            ("simulation_spike_prob", &self.simulation_spike_prob.to_string()),
+            (
+                "simulation_spike_prob",
+                &self.simulation_spike_prob.to_string(),
+            ),
             (
                 "sandbox_time_offset_secs",
                 &self.sandbox_time_offset_secs.to_string(),
@@ -109,10 +112,7 @@ impl DevkitConfig {
             ),
         ];
 
-        out.push_str(&format!(
-            "{:<12} {:<30} {}\n",
-            "key", "value", "source"
-        ));
+        out.push_str(&format!("{:<12} {:<30} {}\n", "key", "value", "source"));
         for (key, value) in &fields {
             let source = if std::env::var(format!("DEVKIT_{}", key.to_uppercase())).is_ok() {
                 "env"

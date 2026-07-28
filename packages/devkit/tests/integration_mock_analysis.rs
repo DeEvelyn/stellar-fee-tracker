@@ -1,5 +1,5 @@
-use stellar_devkit::harness::horizon_mock::HorizonMock;
 use stellar_devkit::analysis::percentile::Percentile;
+use stellar_devkit::harness::horizon_mock::HorizonMock;
 
 #[test]
 fn test_mock_server_to_analysis_pipeline() {
@@ -14,7 +14,8 @@ fn test_mock_server_to_analysis_pipeline() {
 
     assert!(!fee_stats.is_empty(), "Should have collected fee stats");
 
-    let fees: Vec<u64> = fee_stats.iter()
+    let fees: Vec<u64> = fee_stats
+        .iter()
         .filter_map(|s| {
             s.get("fee_stats")
                 .and_then(|fs| fs.get("last_ledger_base_fee"))
@@ -30,6 +31,10 @@ fn test_mock_server_to_analysis_pipeline() {
         assert!(summary.is_some(), "Should produce a distribution summary");
         let summary = summary.unwrap();
         assert!(summary.mean > 0.0, "Mean fee should be positive");
-        println!("Mock analysis: collected {} stats, mean={:.2}", fees.len(), summary.mean);
+        println!(
+            "Mock analysis: collected {} stats, mean={:.2}",
+            fees.len(),
+            summary.mean
+        );
     }
 }

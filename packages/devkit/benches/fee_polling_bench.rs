@@ -54,12 +54,12 @@ fn bench_fee_stats_parse(c: &mut Criterion) {
             let stats: FeeStats = serde_json::from_str(FEE_STATS_JSON).unwrap();
             // Simulate the string-to-u64 conversions done during ingestion.
             let _base: u64 = stats.last_ledger_base_fee.parse().unwrap_or(0);
-            let _min:  u64 = stats.fee_charged.min.parse().unwrap_or(0);
-            let _max:  u64 = stats.fee_charged.max.parse().unwrap_or(0);
-            let _avg:  u64 = stats.fee_charged.avg.parse().unwrap_or(0);
-            let _p50:  u64 = stats.fee_charged.p50.parse().unwrap_or(0);
-            let _p95:  u64 = stats.fee_charged.p95.parse().unwrap_or(0);
-            let _p99:  u64 = stats.fee_charged.p99.parse().unwrap_or(0);
+            let _min: u64 = stats.fee_charged.min.parse().unwrap_or(0);
+            let _max: u64 = stats.fee_charged.max.parse().unwrap_or(0);
+            let _avg: u64 = stats.fee_charged.avg.parse().unwrap_or(0);
+            let _p50: u64 = stats.fee_charged.p50.parse().unwrap_or(0);
+            let _p95: u64 = stats.fee_charged.p95.parse().unwrap_or(0);
+            let _p99: u64 = stats.fee_charged.p99.parse().unwrap_or(0);
         })
     });
 }

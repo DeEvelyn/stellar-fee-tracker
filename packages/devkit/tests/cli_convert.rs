@@ -3,8 +3,8 @@
 //! Converts a CSV to JSON and back.
 //! Asserts round-trip produces identical records.
 
-use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig, FeePoint};
 use stellar_devkit::cli::export::Export;
+use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig, FeePoint};
 
 // ---------------------------------------------------------------------------
 // Helpers – mirrors the typed-doc Convert type
@@ -63,7 +63,12 @@ fn json_to_points(json: &str) -> Result<Vec<FeePoint>, String> {
         let is_spike = get_field("is_spike")?
             .parse::<bool>()
             .map_err(|_| "is_spike parse error".to_string())?;
-        points.push(FeePoint { timestamp, fee, ledger, is_spike });
+        points.push(FeePoint {
+            timestamp,
+            fee,
+            ledger,
+            is_spike,
+        });
     }
     Ok(points)
 }
@@ -82,20 +87,25 @@ fn csv_to_points(csv: &str) -> Result<Vec<FeePoint>, String> {
             return Err(format!("row {i}: expected 4 cols, got {}", cols.len()));
         }
         points.push(FeePoint {
-            timestamp: cols[0].parse::<u64>().map_err(|_| format!("row {i}: bad timestamp"))?,
-            fee: cols[1].parse::<u64>().map_err(|_| format!("row {i}: bad fee"))?,
-            ledger: cols[2].parse::<u64>().map_err(|_| format!("row {i}: bad ledger"))?,
-            is_spike: cols[3].parse::<bool>().map_err(|_| format!("row {i}: bad is_spike"))?,
+            timestamp: cols[0]
+                .parse::<u64>()
+                .map_err(|_| format!("row {i}: bad timestamp"))?,
+            fee: cols[1]
+                .parse::<u64>()
+                .map_err(|_| format!("row {i}: bad fee"))?,
+            ledger: cols[2]
+                .parse::<u64>()
+                .map_err(|_| format!("row {i}: bad ledger"))?,
+            is_spike: cols[3]
+                .parse::<bool>()
+                .map_err(|_| format!("row {i}: bad is_spike"))?,
         });
     }
     Ok(points)
 }
 
 fn points_eq(a: &FeePoint, b: &FeePoint) -> bool {
-    a.timestamp == b.timestamp
-        && a.fee == b.fee
-        && a.ledger == b.ledger
-        && a.is_spike == b.is_spike
+    a.timestamp == b.timestamp && a.fee == b.fee && a.ledger == b.ledger && a.is_spike == b.is_spike
 }
 
 /// Build a deterministic dataset.
@@ -226,10 +236,7 @@ fn convert_spike_flag_is_preserved_in_csv() {
     let csv = Export::to_csv(&pts);
     let recovered = csv_to_points(&csv).expect("parse");
     for (i, (orig, rec)) in pts.iter().zip(recovered.iter()).enumerate() {
-        assert_eq!(
-            orig.is_spike, rec.is_spike,
-            "is_spike mismatch at row {i}"
-        );
+        assert_eq!(orig.is_spike, rec.is_spike, "is_spike mismatch at row {i}");
     }
 }
 

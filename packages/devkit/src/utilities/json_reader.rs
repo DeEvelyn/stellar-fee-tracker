@@ -41,10 +41,9 @@ pub fn read_json_str(input: &str) -> Result<Vec<FeePoint>, JsonReadError> {
     }
 
     // Use serde_json for robust parsing
-    let value: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|e| JsonReadError {
-            message: format!("JSON parse error: {}", e),
-        })?;
+    let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| JsonReadError {
+        message: format!("JSON parse error: {}", e),
+    })?;
 
     let arr = value.as_array().ok_or_else(|| JsonReadError {
         message: "expected a JSON array at the top level".to_string(),

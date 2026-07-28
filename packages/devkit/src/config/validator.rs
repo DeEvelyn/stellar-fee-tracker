@@ -67,7 +67,10 @@ impl ValidationResult {
                 ValidationSeverity::Error => "ERROR",
                 ValidationSeverity::Warning => "WARN ",
             };
-            out.push_str(&format!("[{}] {}: {}\n", prefix, issue.field, issue.message));
+            out.push_str(&format!(
+                "[{}] {}: {}\n",
+                prefix, issue.field, issue.message
+            ));
         }
 
         out.push_str(&format!(
@@ -132,10 +135,7 @@ impl ConfigValidator {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 issues.push(ValidationIssue {
                     field: "db_path".to_string(),
-                    message: format!(
-                        "Parent directory does not exist: {}",
-                        parent.display()
-                    ),
+                    message: format!("Parent directory does not exist: {}", parent.display()),
                     severity: ValidationSeverity::Warning,
                 });
             }
@@ -331,10 +331,7 @@ mod tests {
         config.horizon_url = String::new();
         let result = ConfigValidator::validate(&config);
         assert!(!result.is_valid());
-        assert!(result
-            .errors()
-            .iter()
-            .any(|i| i.field == "horizon_url"));
+        assert!(result.errors().iter().any(|i| i.field == "horizon_url"));
     }
 
     #[test]
@@ -343,10 +340,7 @@ mod tests {
         config.horizon_url = "ftp://invalid".to_string();
         let result = ConfigValidator::validate(&config);
         assert!(!result.is_valid());
-        assert!(result
-            .errors()
-            .iter()
-            .any(|i| i.field == "horizon_url"));
+        assert!(result.errors().iter().any(|i| i.field == "horizon_url"));
     }
 
     #[test]

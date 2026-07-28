@@ -3,10 +3,10 @@
 //! This example demonstrates how to use the sandbox to run percentile
 //! and spike analysis on a congested fixture.
 
+use stellar_devkit::analysis::percentile::{fee_distribution_summary, percentile_nearest_rank};
+use stellar_devkit::analysis::spike_classifier::SpikeClassifier;
 use stellar_devkit::sandbox::environment::SandboxEnv;
 use stellar_devkit::sandbox::fixtures::congested_network;
-use stellar_devkit::analysis::percentile::{percentile_nearest_rank, fee_distribution_summary};
-use stellar_devkit::analysis::spike_classifier::SpikeClassifier;
 
 fn main() {
     println!("=== Sandbox Analysis Example ===\n");
@@ -23,9 +23,21 @@ fn main() {
     let p99 = percentile_nearest_rank(&values, 99.0);
 
     println!("\n--- Fee Distribution ---");
-    println!("p50: {} stroops ({:.7} XLM)", p50, p50 as f64 / 10_000_000.0);
-    println!("p95: {} stroops ({:.7} XLM)", p95, p95 as f64 / 10_000_000.0);
-    println!("p99: {} stroops ({:.7} XLM)", p99, p99 as f64 / 10_000_000.0);
+    println!(
+        "p50: {} stroops ({:.7} XLM)",
+        p50,
+        p50 as f64 / 10_000_000.0
+    );
+    println!(
+        "p95: {} stroops ({:.7} XLM)",
+        p95,
+        p95 as f64 / 10_000_000.0
+    );
+    println!(
+        "p99: {} stroops ({:.7} XLM)",
+        p99,
+        p99 as f64 / 10_000_000.0
+    );
 
     // Run distribution summary
     let summary = fee_distribution_summary(&values);
@@ -35,8 +47,12 @@ fn main() {
 
     // Classify spikes
     let classifier = SpikeClassifier::default();
-    let spikes: Vec<_> = fees.iter()
-        .filter(|(_, f)| classifier.classify(*f) != stellar_devkit::analysis::spike_classifier::SpikeSeverity::Low)
+    let spikes: Vec<_> = fees
+        .iter()
+        .filter(|(_, f)| {
+            classifier.classify(*f)
+                != stellar_devkit::analysis::spike_classifier::SpikeSeverity::Low
+        })
         .collect();
 
     println!("\n--- Spike Analysis ---");

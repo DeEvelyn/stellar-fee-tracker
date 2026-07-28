@@ -24,7 +24,10 @@ fn test_csv_writer_creates_valid_file() {
     let content = std::fs::read_to_string(csv_file.path()).expect("Failed to read file");
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 11, "expected 1 header + 10 data rows");
-    assert!(lines[0].contains("timestamp_ms"), "header should contain timestamp_ms");
+    assert!(
+        lines[0].contains("timestamp_ms"),
+        "header should contain timestamp_ms"
+    );
 }
 
 #[test]
@@ -43,7 +46,10 @@ fn test_csv_writer_roundtrip() {
     }
 
     let content = std::fs::read_to_string(csv_file.path()).expect("Failed to read file");
-    assert!(content.contains("1700000000000"), "should contain timestamp");
+    assert!(
+        content.contains("1700000000000"),
+        "should contain timestamp"
+    );
     assert!(content.contains("3849"), "should contain fee_stroops");
     assert!(content.contains("42"), "should contain sequence");
 }

@@ -76,7 +76,10 @@ fn autocorrelation_linear_trend_lag_one_high() {
     // A linear sequence should be strongly autocorrelated at lag 1.
     let fees: Vec<f64> = (0..100).map(|i| i as f64 * 5.0).collect();
     let ac = autocorrelation(&fees, 1);
-    assert!(ac > 0.99, "linear sequence should have autocorrelation ~1.0 at lag 1, got {ac}");
+    assert!(
+        ac > 0.99,
+        "linear sequence should have autocorrelation ~1.0 at lag 1, got {ac}"
+    );
 }
 
 #[test]

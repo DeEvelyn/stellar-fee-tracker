@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use super::backoff::{BackoffStrategy, compute_delay};
+use super::backoff::{compute_delay, BackoffStrategy};
 
 /// Configuration for a retry executor.
 #[derive(Debug, Clone)]

@@ -114,12 +114,7 @@ impl Config {
         let mut out = String::new();
         out.push_str("devkit configuration\n");
         out.push_str("====================\n");
-        out.push_str(&format!(
-            "{:<12} {:<30} {}\n",
-            "key",
-            "value",
-            "source"
-        ));
+        out.push_str(&format!("{:<12} {:<30} {}\n", "key", "value", "source"));
         out.push_str(&format!(
             "{:<12} {:<30} {}\n",
             "db_path",
@@ -128,21 +123,15 @@ impl Config {
         ));
         out.push_str(&format!(
             "{:<12} {:<30} {}\n",
-            "scenario",
-            self.scenario,
-            scenario_source
+            "scenario", self.scenario, scenario_source
         ));
         out.push_str(&format!(
             "{:<12} {:<30} {}\n",
-            "port",
-            self.port,
-            port_source
+            "port", self.port, port_source
         ));
         out.push_str(&format!(
             "{:<12} {:<30} {}\n",
-            "verbose",
-            self.verbose,
-            verbose_source
+            "verbose", self.verbose, verbose_source
         ));
 
         if !self.overrides.is_empty() {

@@ -23,12 +23,16 @@ pub fn parse_window(s: &str) -> Result<Duration, ParseError> {
 
     let (num_part, unit_part) = trimmed.split_at(trimmed.len() - 1);
 
-    let value: u64 = num_part.parse().map_err(|_| ParseError(format!("'{trimmed}' is not a valid time window")))?;
+    let value: u64 = num_part
+        .parse()
+        .map_err(|_| ParseError(format!("'{trimmed}' is not a valid time window")))?;
 
     match unit_part {
         "h" => Ok(Duration::from_secs(value * 3600)),
         "d" => Ok(Duration::from_secs(value * 86400)),
-        _ => Err(ParseError(format!("unknown unit '{unit_part}', expected 'h' or 'd'"))),
+        _ => Err(ParseError(format!(
+            "unknown unit '{unit_part}', expected 'h' or 'd'"
+        ))),
     }
 }
 

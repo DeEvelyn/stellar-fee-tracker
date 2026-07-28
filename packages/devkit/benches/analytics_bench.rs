@@ -22,11 +22,9 @@ fn bench_analytics_1m(c: &mut Criterion) {
     group.throughput(Throughput::Elements(N as u64));
     group.sample_size(10);
 
-    group.bench_with_input(
-        BenchmarkId::new("analyze_trend", N),
-        &fees,
-        |b, fees| b.iter(|| analyze_trend(fees)),
-    );
+    group.bench_with_input(BenchmarkId::new("analyze_trend", N), &fees, |b, fees| {
+        b.iter(|| analyze_trend(fees))
+    });
 
     group.bench_with_input(
         BenchmarkId::new("compute_volatility", N),

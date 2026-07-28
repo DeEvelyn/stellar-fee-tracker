@@ -1,0 +1,285 @@
+   Compiling stellar-devkit v0.1.0 (C:\Users\HP\stellar-fee-tracker\packages\devkit)
+warning: unused import: `std::io::Write`
+ --> packages\devkit\tests\integration_csv_writer.rs:1:5
+  |
+1 | use std::io::Write;
+  |     ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::PathBuf`
+ --> packages\devkit\tests\integration_db_factory.rs:1:5
+  |
+1 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::sync::Arc`
+ --> packages\devkit\tests\integration_db_factory.rs:2:5
+  |
+2 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+
+warning: `stellar-devkit` (test "integration_csv_writer") generated 1 warning
+warning: variable does not need to be mutable
+  --> packages\devkit\tests\integration_simulate_csv.rs:16:9
+   |
+16 |     let mut csv_file = NamedTempFile::new().expect("Failed to create temp file");
+   |         ----^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `stellar-devkit` (test "integration_db_factory") generated 2 warnings (run `cargo fix --test "integration_db_factory" -p stellar-devkit` to apply 2 suggestions)
+warning: unused import: `stellar_devkit::sandbox::environment::SandboxEnv`
+ --> packages\devkit\examples\sandbox_analysis.rs:8:5
+  |
+8 | use stellar_devkit::sandbox::environment::SandboxEnv;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `stellar-devkit` (test "integration_simulate_csv") generated 1 warning (run `cargo fix --test "integration_simulate_csv" -p stellar-devkit` to apply 1 suggestion)
+warning: `stellar-devkit` (example "sandbox_analysis") generated 1 warning (run `cargo fix --example "sandbox_analysis" -p stellar-devkit` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 04s
+     Running unittests src\lib.rs (C:\Users\HP\stellar-fee-tracker\target\debug\deps\stellar_devkit-52a2e0fbf47dbd63.exe)
+
+running 214 tests
+test analysis::comparator::tests::below_reference ... ok
+test analysis::comparator::tests::within_reference ... ok
+test analysis::comparator::tests::above_reference ... ok
+test analysis::percentile::tests::fee_distribution_summary_basic ... ok
+test analysis::percentile::tests::fee_distribution_summary_empty ... ok
+test analysis::percentile::tests::linear_interpolation_basic ... ok
+test analysis::percentile::tests::linear_interpolation_empty ... ok
+test analysis::percentile::tests::nearest_rank_basic ... ok
+test analysis::percentile::tests::nearest_rank_empty ... ok
+test analysis::percentile::tests::percentile_interpolated_empty ... ok
+test analysis::percentile::tests::percentile_interpolated_two_elements_midpoint ... ok
+test analysis::percentile::tests::percentile_interpolated_free_function ... ok
+test analysis::percentile::tests::percentile_nearest_empty ... ok
+test analysis::percentile::tests::percentile_nearest_free_function ... ok
+test analysis::percentile::tests::psquared_empty_estimate_is_zero ... ok
+test analysis::percentile::tests::psquared_estimate_before_5_observations_returns_mean ... ok
+test analysis::percentile::tests::psquared_p95_on_simple_sequence ... ok
+test analysis::percentile::tests::psquared_converges_for_uniform_data ... ok
+test analysis::spike_classifier::tests::detects_spikes_above_threshold ... ok
+test analysis::percentile::tests::psquared_p99_on_simple_sequence ... ok
+test analysis::spike_classifier::tests::iqr_outliers_detects_spike ... ok
+test analysis::spike_classifier::tests::iqr_outliers_no_outliers ... ok
+test analysis::spike_classifier::tests::iqr_outliers_too_small ... ok
+test analysis::spike_classifier::tests::no_spikes_below_threshold ... ok
+test analysis::spike_classifier::tests::severity_levels ... ok
+test analytics::correlation::tests::autocorrelation_lag_too_large_is_zero ... ok
+test analytics::correlation::tests::autocorrelation_lag_zero_is_one ... ok
+test analytics::correlation::tests::perfect_negative_correlation ... ok
+test analytics::correlation::tests::perfect_positive_correlation ... ok
+test analytics::correlation::tests::uncorrelated ... ok
+test analytics::forecaster::tests::forecast_empty_series ... ok
+test analytics::forecaster::tests::forecast_upward_series ... ok
+test analytics::regime::tests::empty_slices_return_false ... ok
+test analytics::regime::tests::identical_distributions_no_regime_change ... ok
+test analytics::regime::tests::ks_statistic_identical_is_zero ... ok
+test analytics::trend::tests::trend_downward ... ok
+test analytics::regime::tests::very_different_distributions_detected ... ok
+test analytics::trend::tests::trend_empty ... ok
+test analytics::trend::tests::trend_upward ... ok
+test analytics::volatility::tests::constant_series_zero_volatility ... ok
+test analytics::volatility::tests::empty_series ... ok
+test analytics::volatility::tests::increasing_series ... ok
+test cli::completions::tests::completions_default_shell_is_bash ... ok
+test cli::benchmark::tests::run_all_does_not_panic ... ok
+test cli::completions::tests::shell_type_parse_bash ... ok
+test cli::completions::tests::completions_generate_bash_is_nonempty ... ok
+test cli::completions::tests::completions_generate_zsh_is_nonempty ... ok
+test cli::completions::tests::completions_generate_fish_is_nonempty ... ok
+test cli::completions::tests::shell_type_parse_case_insensitive ... ok
+test cli::completions::tests::shell_type_parse_fish ... ok
+test cli::completions::tests::shell_type_parse_unknown_returns_none ... ok
+test cli::completions::tests::shell_type_parse_zsh ... ok
+test cli::config::tests::config_args_default_does_not_panic ... ok
+test cli::config::tests::config_default_has_sensible_values ... ok
+test cli::config::tests::config_keys_includes_base_keys ... ok
+test cli::config::tests::config_display_includes_all_fields ... ok
+test cli::export::tests::csv_has_header ... ok
+test cli::config::tests::config_validate_handles_missing_db ... ok
+test cli::export::tests::json_is_array ... ok
+test cli::export::tests::window_1h_filters ... ok
+test cli::export::tests::window_all_keeps_all ... ok
+test cli::version::tests::build_info_default_contains_version ... ok
+test cli::version::tests::build_info_json_is_valid_object ... ok
+test cli::version::tests::is_newer_than_returns_true_for_higher_major ... ok
+test cli::version::tests::is_newer_than_returns_false_for_lower ... ok
+test cli::version::tests::is_newer_than_same_version ... ok
+test cli::version::tests::version_args_default_does_not_panic ... ok
+test cli::version::tests::version_is_not_empty ... ok
+test cli::version::tests::version_only_returns_str ... ok
+test config::validator::tests::aggressive_poll_interval_is_warning ... ok
+test config::validator::tests::empty_horizon_url_is_error ... ok
+test config::validator::tests::invalid_horizon_url_is_error ... ok
+test config::validator::tests::negative_spike_prob_is_error ... ok
+test config::validator::tests::invalid_spike_prob_is_error ... ok
+test config::validator::tests::privileged_port_is_warning ... ok
+test config::validator::tests::unknown_scenario_is_warning ... ok
+test config::validator::tests::validation_result_display_shows_errors ... ok
+test config::validator::tests::valid_default_config_passes ... ok
+test config::validator::tests::validation_result_has_issues ... ok
+test config::validator::tests::zero_poll_interval_is_error ... ok
+test config::validator::tests::zero_port_is_error ... ok
+test config::validator::tests::zero_simulation_base_fee_is_error ... ok
+test config::validator::tests::zero_simulation_duration_is_error ... ok
+test data_quality::repair::tests::detect_clean_data_returns_no_issues ... ok
+test data_quality::repair::tests::detect_dirty_data_finds_issues ... ok
+test data_quality::repair::tests::detect_ledger_gap ... ok
+test data_quality::repair::tests::dry_run_does_not_modify_points ... ok
+test data_quality::repair::tests::issue_display_format ... ok
+test data_quality::repair::tests::quality_score_perfect_for_clean ... ok
+test data_quality::repair::tests::quality_score_reduced_for_dirty ... ok
+test data_quality::repair::tests::quality_score_zero_for_empty ... ok
+test data_quality::repair::tests::detect_outlier_high_z_score ... FAILED
+test data_quality::repair::tests::repair_apply_removes_duplicates ... ok
+test data_quality::repair::tests::repair_args_default_is_dry_run ... ok
+test data_quality::repair::tests::repair_plan_generates_actions ... ok
+test data_quality::validator::tests::clean_data_passes ... ok
+test data_quality::validator::tests::display_shows_pass ... ok
+test data_quality::validator::tests::dirty_data_fails ... ok
+test data_quality::validator::tests::empty_input ... ok
+test data_quality::validator::tests::duplicate_ledger_detected ... ok
+test data_quality::validator::tests::gap_detected ... ok
+test data_quality::validator::tests::json_contains_clean_key ... ok
+test data_quality::validator::tests::out_of_order_detected ... ok
+test data_quality::validator::tests::outlier_detected ... FAILED
+test data_quality::validator::tests::zero_fee_detected ... ok
+test monitoring::health::tests::db_check_name_is_database ... ok
+test monitoring::health::tests::health_args_default ... ok
+test monitoring::health::tests::db_health_check_reports_not_found ... ok
+test monitoring::health::tests::health_status_display ... ok
+test monitoring::health::tests::health_json_includes_status ... ok
+test monitoring::health::tests::healthy_status_when_all_checks_pass ... ok
+test monitoring::health::tests::memory_check_always_passes ... ok
+test monitoring::health::tests::registry_run_all_returns_checks ... ok
+test monitoring::metrics::tests::display_includes_all_fields ... ok
+test monitoring::metrics::tests::json_output_is_valid_object ... ok
+test monitoring::metrics::tests::merge_combines_two_metric_sets ... ok
+test monitoring::metrics::tests::metrics_args_default ... ok
+test monitoring::metrics::tests::metrics_default_is_zeroed ... ok
+test monitoring::metrics::tests::record_simulation_increments_counters ... ok
+test monitoring::metrics::tests::reset_clears_everything ... ok
+test monitoring::metrics::tests::spike_rate_computes_correct_percentage ... ok
+test resilience::backoff::tests::exponential_cap ... ok
+test resilience::backoff::tests::exponential_delay_attempts ... ok
+test resilience::backoff::tests::fixed_delay ... ok
+test resilience::backoff::tests::linear_delay ... ok
+test resilience::backoff::tests::linear_cap ... ok
+test resilience::circuit_breaker::tests::opens_after_threshold_failures ... ok
+test resilience::circuit_breaker::tests::starts_closed ... ok
+test resilience::circuit_breaker::tests::success_resets_failure_count ... ok
+test resilience::fallback::tests::both_fail ... ok
+test resilience::fallback::tests::primary_fails_fallback_succeeds ... ok
+test resilience::circuit_breaker::tests::half_open_failure_reopens ... ok
+test resilience::circuit_breaker::tests::closes_after_successes_in_half_open ... ok
+test resilience::fallback::tests::primary_succeeds ... ok
+test resilience::retry::tests::succeeds_on_first_try ... ok
+test resilience::timeout::tests::fast_operation_completes ... ok
+test resilience::retry::tests::retries_then_succeeds ... ok
+test resilience::retry::tests::exhausts_attempts ... ok
+test resilience::timeout::tests::slow_operation_times_out ... ok
+test sandbox::assertions::tests::fee_in_range_err ... ok
+test sandbox::assertions::tests::fee_in_range_ok ... ok
+test sandbox::assertions::tests::has_anomalies_err ... ok
+test sandbox::assertions::tests::no_anomalies_ok ... ok
+test sandbox::assertions::tests::spike_detected_ok ... ok
+test sandbox::assertions::tests::spike_not_detected ... ok
+test sandbox::assertions::tests::spike_zero_baseline ... ok
+test sandbox::collector::tests::avg_fee_computed_correctly ... ok
+test sandbox::collector::tests::new_collector_is_empty ... ok
+test sandbox::collector::tests::record_increments_count ... ok
+test sandbox::environment::tests::each_regime_has_2500_records ... ok
+test sandbox::environment::tests::from_normal_fixture_has_10k_records ... ok
+test sandbox::environment::tests::seed_produces_10k_records ... ok
+test sandbox::environment::tests::reset_restores_10k_records ... ok
+test sandbox::fixtures::tests::congested_network_count ... ok
+test sandbox::fixtures::tests::congested_network_fees_in_range ... ok
+test sandbox::fixtures::tests::normal_network_count ... ok
+test sandbox::fixtures::tests::normal_network_fees_in_range ... ok
+test sandbox::fixtures::tests::volatile_network_count ... ok
+test resilience::circuit_breaker::tests::transitions_to_half_open_after_open_duration ... ok
+test sandbox::fixtures::tests::normal_network_timestamps_ascending ... ok
+test sandbox::runner::tests::run_receives_seeded_env ... ok
+test simulation::fee_model::tests::apply_timestamps_overwrites_points ... ok
+test simulation::fee_model::tests::fee_curve_capacity_usage_all_spikes ... ok
+test simulation::fee_model::tests::fee_curve_from_fee_points_last_ledger_and_base_fee ... ok
+test simulation::fee_model::tests::fee_points_to_json_contains_required_keys ... ok
+test simulation::fee_model::tests::generate_baseline_no_noise_exact_base_fee ... ok
+test simulation::fee_model::tests::generate_baseline_noise_shifts_some_fees ... ok
+test simulation::fee_model::tests::generate_baseline_returns_correct_count ... ok
+test simulation::fee_model::tests::generate_timestamps_correct_spacing ... ok
+test simulation::fee_model::tests::inject_spikes_none_marked_at_probability_zero ... ok
+test simulation::fee_model::tests::inject_spikes_all_marked_at_probability_one ... ok
+test test_helpers::tests::different_seeds_produce_different_sequences ... ok
+test test_helpers::tests::fixture_builder_produces_correct_count ... ok
+test test_helpers::tests::fixture_builder_sequential_timestamps ... ok
+test test_helpers::tests::same_seed_produces_same_sequence ... ok
+test test_helpers::tests::flat_returns_uniform_sequence ... ok
+test utilities::comparator::tests::compare_fields_populated ... ok
+test utilities::comparator::tests::empty_baseline_does_not_panic ... ok
+test utilities::comparator::tests::identical_datasets_are_similar ... ok
+test utilities::comparator::tests::mean_delta_negative_when_target_higher ... ok
+test utilities::comparator::tests::spikes_counted ... ok
+test utilities::comparator::tests::to_json_contains_keys ... ok
+test utilities::csv_reader::tests::empty_csv_with_only_header ... ok
+test utilities::csv_reader::tests::malformed_row_is_skipped ... ok
+test utilities::csv_reader::tests::read_csv_first_row_timestamp ... ok
+test utilities::csv_reader::tests::read_csv_spike_flag_true ... ok
+test utilities::csv_reader::tests::read_valid_csv_parses_all_rows ... ok
+test utilities::csv_reader::tests::round_trip_csv ... ok
+test utilities::csv_reader::tests::write_csv_produces_header ... ok
+test utilities::json_reader::tests::read_empty_array ... ok
+test utilities::json_reader::tests::read_empty_string_returns_empty ... ok
+test utilities::json_reader::tests::read_invalid_json_returns_error ... ok
+test utilities::json_reader::tests::read_json_first_record_fields ... ok
+test utilities::json_reader::tests::read_json_spike_flag ... ok
+test utilities::json_reader::tests::read_missing_field_returns_error ... ok
+test utilities::json_reader::tests::read_non_array_returns_error ... ok
+test utilities::json_reader::tests::read_valid_json_parses_all_records ... ok
+test utilities::json_reader::tests::round_trip_json ... ok
+test utilities::json_reader::tests::write_json_produces_array ... ok
+test utilities::json_writer::tests::to_json_string ... ok
+test utilities::percentile_table::tests::display_contains_p50 ... ok
+test utilities::json_writer::tests::empty_input ... ok
+test utilities::percentile_table::tests::from_fees_returns_none_on_empty ... ok
+test utilities::json_writer::tests::write_and_read_roundtrip ... ok
+test utilities::percentile_table::tests::p50_is_median ... ok
+test utilities::percentile_table::tests::single_value_all_equal ... ok
+test utilities::percentile_table::tests::to_json_contains_all_keys ... ok
+test utilities::time::tests::parse_days ... ok
+test utilities::time::tests::parse_empty_string ... ok
+test utilities::time::tests::parse_hours ... ok
+test utilities::time::tests::parse_invalid_number ... ok
+test utilities::time::tests::parse_invalid_unit ... ok
+test utilities::time::tests::parse_no_number ... ok
+test utilities::time::tests::parse_with_whitespace ... ok
+
+failures:
+
+---- data_quality::repair::tests::detect_outlier_high_z_score stdout ----
+
+thread 'data_quality::repair::tests::detect_outlier_high_z_score' (23156) panicked at packages\devkit\src\data_quality\repair.rs:498:9:
+assertion failed: issues.iter().any(|i| matches!(i, DataIssue::Outlier { .. }))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- data_quality::validator::tests::outlier_detected stdout ----
+
+thread 'data_quality::validator::tests::outlier_detected' (22340) panicked at packages\devkit\src\data_quality\validator.rs:257:9:
+assertion failed: r.findings.iter().any(|f| matches!(f, ValidationFinding::Outliers { .. }))
+
+
+failures:
+    data_quality::repair::tests::detect_outlier_high_z_score
+    data_quality::validator::tests::outlier_detected
+
+test result: FAILED. 212 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+error: test failed, to rerun pass `--lib`

@@ -14,7 +14,11 @@ pub enum DataIssue {
     /// Duplicate ledger sequence number.
     DuplicateLedger(u64),
     /// Out-of-order timestamp.
-    OutOfOrder { ledger: u64, expected: u64, actual: u64 },
+    OutOfOrder {
+        ledger: u64,
+        expected: u64,
+        actual: u64,
+    },
     /// Missing fee value (zero fee).
     ZeroFee(u64),
     /// Abnormally high fee (potential outlier).
@@ -29,7 +33,11 @@ impl std::fmt::Display for DataIssue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::DuplicateLedger(l) => write!(f, "duplicate ledger {}", l),
-            Self::OutOfOrder { ledger, expected, actual } => {
+            Self::OutOfOrder {
+                ledger,
+                expected,
+                actual,
+            } => {
                 write!(
                     f,
                     "out-of-order at ledger {}: expected ts >= {}, got {}",
@@ -37,8 +45,16 @@ impl std::fmt::Display for DataIssue {
                 )
             }
             Self::ZeroFee(l) => write!(f, "zero fee at ledger {}", l),
-            Self::Outlier { ledger, fee, z_score } => {
-                write!(f, "outlier at ledger {}: fee={}, z={:.2}", ledger, fee, z_score)
+            Self::Outlier {
+                ledger,
+                fee,
+                z_score,
+            } => {
+                write!(
+                    f,
+                    "outlier at ledger {}: fee={}, z={:.2}",
+                    ledger, fee, z_score
+                )
             }
             Self::LedgerGap { from, to, gap_size } => {
                 write!(f, "ledger gap {} -> {} ({} missing)", from, to, gap_size)
@@ -58,7 +74,11 @@ pub enum RepairAction {
     /// Replace a zero fee with the mean of neighbors.
     FillZeroFee { ledger: u64, replacement: u64 },
     /// Cap an outlier fee to a threshold.
-    CapOutlier { ledger: u64, original: u64, capped: u64 },
+    CapOutlier {
+        ledger: u64,
+        original: u64,
+        capped: u64,
+    },
     /// Interpolate missing ledgers.
     InterpolateGap { from: u64, to: u64, count: u64 },
 }
@@ -88,8 +108,8 @@ impl Repair {
         let std_dev = if fees.is_empty() {
             0.0
         } else {
-            let variance = fees.iter().map(|f| (*f as f64 - mean).powi(2)).sum::<f64>()
-                / fees.len() as f64;
+            let variance =
+                fees.iter().map(|f| (*f as f64 - mean).powi(2)).sum::<f64>() / fees.len() as f64;
             variance.sqrt()
         };
 
@@ -221,7 +241,10 @@ impl Repair {
 
         for action in &actions {
             match action {
-                RepairAction::FillZeroFee { ledger, replacement } => {
+                RepairAction::FillZeroFee {
+                    ledger,
+                    replacement,
+                } => {
                     if let Some(pt) = cleaned.iter_mut().find(|p| p.ledger == *ledger) {
                         if pt.fee == 0 {
                             pt.fee = *replacement;
@@ -339,19 +362,59 @@ mod tests {
 
     fn clean_data() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 0, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 100, fee: 110, ledger: 2, is_spike: false },
-            FeePoint { timestamp: 200, fee: 105, ledger: 3, is_spike: false },
+            FeePoint {
+                timestamp: 0,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 100,
+                fee: 110,
+                ledger: 2,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 200,
+                fee: 105,
+                ledger: 3,
+                is_spike: false,
+            },
         ]
     }
 
     fn dirty_data() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 0, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 50, fee: 0, ledger: 1, is_spike: false }, // duplicate + zero fee
-            FeePoint { timestamp: 200, fee: 110, ledger: 3, is_spike: false },
-            FeePoint { timestamp: 150, fee: 150, ledger: 2, is_spike: false }, // out-of-order
-            FeePoint { timestamp: 300, fee: 999_999, ledger: 5, is_spike: true }, // outlier
+            FeePoint {
+                timestamp: 0,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 50,
+                fee: 0,
+                ledger: 1,
+                is_spike: false,
+            }, // duplicate + zero fee
+            FeePoint {
+                timestamp: 200,
+                fee: 110,
+                ledger: 3,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 150,
+                fee: 150,
+                ledger: 2,
+                is_spike: false,
+            }, // out-of-order
+            FeePoint {
+                timestamp: 300,
+                fee: 999_999,
+                ledger: 5,
+                is_spike: true,
+            }, // outlier
         ]
     }
 
@@ -366,7 +429,9 @@ mod tests {
         let issues = Repair::detect(&dirty_data());
         assert!(!issues.is_empty());
         assert!(issues.iter().any(|i| matches!(i, DataIssue::ZeroFee(_))));
-        assert!(issues.iter().any(|i| matches!(i, DataIssue::DuplicateLedger(_))));
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, DataIssue::DuplicateLedger(_))));
     }
 
     #[test]
@@ -404,13 +469,35 @@ mod tests {
     #[test]
     fn detect_outlier_high_z_score() {
         let data = vec![
-            FeePoint { timestamp: 0, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 100, fee: 110, ledger: 2, is_spike: false },
-            FeePoint { timestamp: 200, fee: 105, ledger: 3, is_spike: false },
-            FeePoint { timestamp: 300, fee: 10_000, ledger: 4, is_spike: true },
+            FeePoint {
+                timestamp: 0,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 100,
+                fee: 110,
+                ledger: 2,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 200,
+                fee: 105,
+                ledger: 3,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 300,
+                fee: 10_000,
+                ledger: 4,
+                is_spike: true,
+            },
         ];
         let issues = Repair::detect(&data);
-        assert!(issues.iter().any(|i| matches!(i, DataIssue::Outlier { .. })));
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, DataIssue::Outlier { .. })));
     }
 
     #[test]
@@ -422,11 +509,23 @@ mod tests {
     #[test]
     fn detect_ledger_gap() {
         let data = vec![
-            FeePoint { timestamp: 0, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 200, fee: 110, ledger: 5, is_spike: false },
+            FeePoint {
+                timestamp: 0,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 200,
+                fee: 110,
+                ledger: 5,
+                is_spike: false,
+            },
         ];
         let issues = Repair::detect(&data);
-        assert!(issues.iter().any(|i| matches!(i, DataIssue::LedgerGap { .. })));
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i, DataIssue::LedgerGap { .. })));
     }
 
     #[test]

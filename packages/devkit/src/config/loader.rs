@@ -27,8 +27,8 @@ pub(crate) struct DevkitConfigToml {
 impl DevkitConfig {
     /// Load configuration from a TOML file.
     pub fn from_toml_file(path: &PathBuf) -> Result<Self, String> {
-        let content =
-            std::fs::read_to_string(path).map_err(|e| format!("Failed to read config file: {}", e))?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
         let toml_cfg: DevkitConfigToml =
             toml::from_str(&content).map_err(|e| format!("Failed to parse config file: {}", e))?;
 

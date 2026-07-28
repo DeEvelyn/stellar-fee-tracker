@@ -74,9 +74,7 @@ pub fn forecast_holt(fees: &[f64], horizon: usize, alpha: f64, beta: f64) -> Vec
         trend = beta * (level - prev_level) + (1.0 - beta) * trend;
     }
 
-    (1..=horizon)
-        .map(|h| level + h as f64 * trend)
-        .collect()
+    (1..=horizon).map(|h| level + h as f64 * trend).collect()
 }
 
 /// Compute 80% and 95% confidence intervals for a sequence of point forecasts

@@ -28,12 +28,25 @@ fn test_simulate_to_csv_pipeline() {
 
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 101, "CSV should have 1 header + 100 data rows");
-    assert!(lines[0].contains("timestamp"), "Header should contain timestamp");
-    assert!(lines[0].contains("fee_amount"), "Header should contain fee_amount");
+    assert!(
+        lines[0].contains("timestamp"),
+        "Header should contain timestamp"
+    );
+    assert!(
+        lines[0].contains("fee_amount"),
+        "Header should contain fee_amount"
+    );
 
     // Verify record count matches
     let data_lines = &lines[1..];
-    assert_eq!(data_lines.len(), fees.len(), "Data rows should match generated count");
+    assert_eq!(
+        data_lines.len(),
+        fees.len(),
+        "Data rows should match generated count"
+    );
 
-    println!("Successfully simulated {} fees, exported to CSV, and verified", fees.len());
+    println!(
+        "Successfully simulated {} fees, exported to CSV, and verified",
+        fees.len()
+    );
 }

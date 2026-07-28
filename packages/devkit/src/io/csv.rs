@@ -26,7 +26,9 @@ impl CsvWriter {
     /// Open a new CSV writer targeting the given file path.
     pub fn new<P: AsRef<Path>>(file: P) -> std::io::Result<Self> {
         let f = File::create(file)?;
-        Ok(Self { writer: BufWriter::new(f) })
+        Ok(Self {
+            writer: BufWriter::new(f),
+        })
     }
 
     /// Write the CSV header row.

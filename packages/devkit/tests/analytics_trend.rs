@@ -89,7 +89,10 @@ fn upward_r_squared_close_to_one_for_perfect_line() {
 fn mean_is_correct() {
     let fees = vec![100.0, 200.0, 300.0];
     let result = analyze_trend(&fees);
-    assert!((result.mean - 200.0).abs() < f64::EPSILON, "mean should be 200");
+    assert!(
+        (result.mean - 200.0).abs() < f64::EPSILON,
+        "mean should be 200"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +147,7 @@ fn fee_velocity_respects_window() {
     // Build a long sequence where only the last 2 s have a rate of change.
     // Everything before should be filtered out by the window.
     let mut fees: Vec<(u64, u64)> = (0..100)
-        .map(|i| (i as u64 * 100, 200u64))  // flat for 10 s
+        .map(|i| (i as u64 * 100, 200u64)) // flat for 10 s
         .collect();
     // Add two more points 1 s apart with a rising fee.
     let last_ts = fees.last().unwrap().0;

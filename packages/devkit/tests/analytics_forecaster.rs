@@ -5,7 +5,7 @@
 //! - Rising sequence forecasts values higher than the last observation
 //! - Falling sequence forecasts values lower than the last observation
 
-use stellar_devkit::analytics::forecaster::{forecast_linear, forecast_holt};
+use stellar_devkit::analytics::forecaster::{forecast_holt, forecast_linear};
 
 // ---------------------------------------------------------------------------
 // Linear forecaster — issue #464
@@ -90,7 +90,10 @@ fn holt_rising_sequence_forecasts_higher_than_last() {
     let last = *fees.last().unwrap();
     let predictions = forecast_holt(&fees, 5, 0.3, 0.1);
     for &p in &predictions {
-        assert!(p > last, "Holt forecast must exceed last value for rising series, got {p}");
+        assert!(
+            p > last,
+            "Holt forecast must exceed last value for rising series, got {p}"
+        );
     }
 }
 

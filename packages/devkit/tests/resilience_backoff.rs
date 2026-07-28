@@ -1,4 +1,4 @@
-use stellar_devkit::resilience::backoff::{BackoffStrategy, compute_delay};
+use stellar_devkit::resilience::backoff::{compute_delay, BackoffStrategy};
 
 #[test]
 fn exponential_correct_delay_per_attempt() {
@@ -37,11 +37,14 @@ fn exponential_jitter_within_20_percent() {
         jitter_pct: 20.0,
     };
     for attempt in 0..10 {
-        let base = compute_delay(&BackoffStrategy::Exponential {
-            base_ms: 100,
-            max_ms: 10_000,
-            jitter_pct: 0.0,
-        }, attempt);
+        let base = compute_delay(
+            &BackoffStrategy::Exponential {
+                base_ms: 100,
+                max_ms: 10_000,
+                jitter_pct: 0.0,
+            },
+            attempt,
+        );
         let with_jitter = compute_delay(&strategy, attempt);
         let max_jitter = (base as f64 * 0.20) as u64;
         assert!(

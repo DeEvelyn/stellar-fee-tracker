@@ -62,10 +62,13 @@ impl QualityReport {
     }
 
     pub fn to_json(&self) -> String {
-        let finding_strs: Vec<String> = self.findings.iter().map(|f| format!("\"{}\"", f)).collect();
+        let finding_strs: Vec<String> =
+            self.findings.iter().map(|f| format!("\"{}\"", f)).collect();
         format!(
             r#"{{"record_count":{},"score":{:.2},"clean":{},"findings":[{}]}}"#,
-            self.record_count, self.score, self.is_clean(),
+            self.record_count,
+            self.score,
+            self.is_clean(),
             finding_strs.join(","),
         )
     }
@@ -77,7 +80,11 @@ pub struct Validator;
 impl Validator {
     pub fn run(points: &[FeePoint]) -> QualityReport {
         if points.is_empty() {
-            return QualityReport { record_count: 0, score: 0.0, findings: vec![] };
+            return QualityReport {
+                record_count: 0,
+                score: 0.0,
+                findings: vec![],
+            };
         }
 
         let mut findings = Vec::new();
@@ -93,12 +100,18 @@ impl Validator {
             findings.push(ValidationFinding::DuplicateLedgers { count: dup_count });
         }
 
-        let oor_count = points.windows(2).filter(|w| w[1].timestamp < w[0].timestamp).count();
+        let oor_count = points
+            .windows(2)
+            .filter(|w| w[1].timestamp < w[0].timestamp)
+            .count();
         if oor_count > 0 {
             findings.push(ValidationFinding::OutOfOrder { count: oor_count });
         }
 
-        let gap_count = points.windows(2).filter(|w| w[1].ledger > w[0].ledger + 1).count();
+        let gap_count = points
+            .windows(2)
+            .filter(|w| w[1].ledger > w[0].ledger + 1)
+            .count();
         if gap_count > 0 {
             findings.push(ValidationFinding::LedgerGaps { count: gap_count });
         }
@@ -108,16 +121,25 @@ impl Validator {
         let variance = fees.iter().map(|f| (f - mean).powi(2)).sum::<f64>() / fees.len() as f64;
         let std_dev = variance.sqrt();
         if std_dev > 0.0 {
-            let outlier_count = fees.iter().filter(|&&f| ((f - mean) / std_dev).abs() > 3.0).count();
+            let outlier_count = fees
+                .iter()
+                .filter(|&&f| ((f - mean) / std_dev).abs() > 3.0)
+                .count();
             if outlier_count > 0 {
-                findings.push(ValidationFinding::Outliers { count: outlier_count });
+                findings.push(ValidationFinding::Outliers {
+                    count: outlier_count,
+                });
             }
         }
 
         let penalty = findings.len() as f64 * 0.1;
         let score = (1.0_f64 - penalty).max(0.0);
 
-        QualityReport { record_count: points.len(), score, findings }
+        QualityReport {
+            record_count: points.len(),
+            score,
+            findings,
+        }
     }
 }
 
@@ -128,17 +150,47 @@ mod tests {
 
     fn clean() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 0,  fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 5,  fee: 110, ledger: 2, is_spike: false },
-            FeePoint { timestamp: 10, fee: 105, ledger: 3, is_spike: false },
+            FeePoint {
+                timestamp: 0,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 5,
+                fee: 110,
+                ledger: 2,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 10,
+                fee: 105,
+                ledger: 3,
+                is_spike: false,
+            },
         ]
     }
 
     fn dirty() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 0,  fee: 0,   ledger: 1, is_spike: false },
-            FeePoint { timestamp: 10, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 5,  fee: 110, ledger: 3, is_spike: false },
+            FeePoint {
+                timestamp: 0,
+                fee: 0,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 10,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 5,
+                fee: 110,
+                ledger: 3,
+                is_spike: false,
+            },
         ]
     }
 
@@ -159,33 +211,53 @@ mod tests {
     #[test]
     fn zero_fee_detected() {
         let r = Validator::run(&dirty());
-        assert!(r.findings.iter().any(|f| matches!(f, ValidationFinding::ZeroFees { .. })));
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| matches!(f, ValidationFinding::ZeroFees { .. })));
     }
 
     #[test]
     fn duplicate_ledger_detected() {
         let r = Validator::run(&dirty());
-        assert!(r.findings.iter().any(|f| matches!(f, ValidationFinding::DuplicateLedgers { .. })));
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| matches!(f, ValidationFinding::DuplicateLedgers { .. })));
     }
 
     #[test]
     fn out_of_order_detected() {
         let r = Validator::run(&dirty());
-        assert!(r.findings.iter().any(|f| matches!(f, ValidationFinding::OutOfOrder { .. })));
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| matches!(f, ValidationFinding::OutOfOrder { .. })));
     }
 
     #[test]
     fn gap_detected() {
         let r = Validator::run(&dirty());
-        assert!(r.findings.iter().any(|f| matches!(f, ValidationFinding::LedgerGaps { .. })));
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| matches!(f, ValidationFinding::LedgerGaps { .. })));
     }
 
     #[test]
     fn outlier_detected() {
         let mut data = clean();
-        data.push(FeePoint { timestamp: 50, fee: 100_000, ledger: 4, is_spike: true });
+        data.push(FeePoint {
+            timestamp: 50,
+            fee: 100_000,
+            ledger: 4,
+            is_spike: true,
+        });
         let r = Validator::run(&data);
-        assert!(r.findings.iter().any(|f| matches!(f, ValidationFinding::Outliers { .. })));
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| matches!(f, ValidationFinding::Outliers { .. })));
     }
 
     #[test]

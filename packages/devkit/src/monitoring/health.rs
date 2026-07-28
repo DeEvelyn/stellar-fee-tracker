@@ -204,7 +204,9 @@ impl HealthArgs {
     pub fn run(&self) -> bool {
         let mut registry = HealthRegistry::new();
         if let Some(db) = &self.db_path {
-            registry.register(Box::new(DbHealthCheck { db_path: db.clone() }));
+            registry.register(Box::new(DbHealthCheck {
+                db_path: db.clone(),
+            }));
         }
         registry.register(Box::new(MemoryHealthCheck { min_bytes: 1024 }));
 
@@ -239,7 +241,10 @@ impl HealthArgs {
                 for check in &results {
                     let icon = if check.ok { "✓" } else { "✗" };
                     let detail = check.detail.as_deref().unwrap_or("");
-                    println!("  {} {}  ({}ms) {}", icon, check.name, check.duration_ms, detail);
+                    println!(
+                        "  {} {}  ({}ms) {}",
+                        icon, check.name, check.duration_ms, detail
+                    );
                 }
             }
         }
@@ -251,7 +256,9 @@ impl HealthArgs {
     pub fn is_healthy(&self) -> bool {
         let mut registry = HealthRegistry::new();
         if let Some(db) = &self.db_path {
-            registry.register(Box::new(DbHealthCheck { db_path: db.clone() }));
+            registry.register(Box::new(DbHealthCheck {
+                db_path: db.clone(),
+            }));
         }
         let (status, _) = registry.status();
         matches!(status, HealthStatus::Healthy)

@@ -1,5 +1,5 @@
-use stellar_devkit::sandbox::runner::*;
 use std::time::Instant;
+use stellar_devkit::sandbox::runner::*;
 
 #[test]
 fn test_runner_executes_closure() {
@@ -27,7 +27,10 @@ fn test_result_collector_captures_duration() {
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     collector.record_duration(start.elapsed());
-    assert!(collector.duration().as_millis() >= 10, "Should capture duration");
+    assert!(
+        collector.duration().as_millis() >= 10,
+        "Should capture duration"
+    );
 }
 
 #[test]

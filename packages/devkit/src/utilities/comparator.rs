@@ -42,13 +42,27 @@ impl ComparisonResult {
              p95        baseline={:>8}  target={:>8}  delta={:+}\n\
              spikes     baseline={:>8}  target={:>8}\n\
              volatility {}\n",
-            self.label_baseline, self.label_target,
-            self.count_baseline, self.count_target,
-            self.mean_baseline, self.mean_target, self.mean_delta, self.mean_delta_pct,
-            self.p50_baseline, self.p50_target, self.p50_delta,
-            self.p95_baseline, self.p95_target, self.p95_delta,
-            self.spikes_baseline, self.spikes_target,
-            if self.target_more_volatile { "target is more volatile" } else { "target is less volatile" },
+            self.label_baseline,
+            self.label_target,
+            self.count_baseline,
+            self.count_target,
+            self.mean_baseline,
+            self.mean_target,
+            self.mean_delta,
+            self.mean_delta_pct,
+            self.p50_baseline,
+            self.p50_target,
+            self.p50_delta,
+            self.p95_baseline,
+            self.p95_target,
+            self.p95_delta,
+            self.spikes_baseline,
+            self.spikes_target,
+            if self.target_more_volatile {
+                "target is more volatile"
+            } else {
+                "target is less volatile"
+            },
         )
     }
 
@@ -65,13 +79,22 @@ impl ComparisonResult {
                 r#""spikes_baseline":{sb},"spikes_target":{st},"#,
                 r#""target_more_volatile":{tmv}}}"#,
             ),
-            lb = self.label_baseline, lt = self.label_target,
-            cb = self.count_baseline, ct = self.count_target,
-            mb = self.mean_baseline, mt = self.mean_target,
-            md = self.mean_delta, mdp = self.mean_delta_pct,
-            p50b = self.p50_baseline, p50t = self.p50_target, p50d = self.p50_delta,
-            p95b = self.p95_baseline, p95t = self.p95_target, p95d = self.p95_delta,
-            sb = self.spikes_baseline, st = self.spikes_target,
+            lb = self.label_baseline,
+            lt = self.label_target,
+            cb = self.count_baseline,
+            ct = self.count_target,
+            mb = self.mean_baseline,
+            mt = self.mean_target,
+            md = self.mean_delta,
+            mdp = self.mean_delta_pct,
+            p50b = self.p50_baseline,
+            p50t = self.p50_target,
+            p50d = self.p50_delta,
+            p95b = self.p95_baseline,
+            p95t = self.p95_target,
+            p95d = self.p95_delta,
+            sb = self.spikes_baseline,
+            st = self.spikes_target,
             tmv = self.target_more_volatile,
         )
     }
@@ -102,7 +125,11 @@ impl FeeComparator {
         let mean_b = mean_fee(baseline);
         let mean_t = mean_fee(target);
         let mean_delta = mean_b - mean_t;
-        let mean_delta_pct = if mean_b != 0.0 { (mean_delta / mean_b) * 100.0 } else { 0.0 };
+        let mean_delta_pct = if mean_b != 0.0 {
+            (mean_delta / mean_b) * 100.0
+        } else {
+            0.0
+        };
 
         let p50_b = sorted_percentile(baseline, 50);
         let p50_t = sorted_percentile(target, 50);
@@ -132,19 +159,29 @@ impl FeeComparator {
 }
 
 fn mean_fee(points: &[FeePoint]) -> f64 {
-    if points.is_empty() { return 0.0; }
+    if points.is_empty() {
+        return 0.0;
+    }
     points.iter().map(|p| p.fee as f64).sum::<f64>() / points.len() as f64
 }
 
 fn std_dev(points: &[FeePoint]) -> f64 {
-    if points.is_empty() { return 0.0; }
+    if points.is_empty() {
+        return 0.0;
+    }
     let mean = mean_fee(points);
-    let var = points.iter().map(|p| (p.fee as f64 - mean).powi(2)).sum::<f64>() / points.len() as f64;
+    let var = points
+        .iter()
+        .map(|p| (p.fee as f64 - mean).powi(2))
+        .sum::<f64>()
+        / points.len() as f64;
     var.sqrt()
 }
 
 fn sorted_percentile(points: &[FeePoint], p: u8) -> u64 {
-    if points.is_empty() { return 0; }
+    if points.is_empty() {
+        return 0;
+    }
     let mut fees: Vec<u64> = points.iter().map(|p| p.fee).collect();
     fees.sort_unstable();
     let idx = ((p as f64 / 100.0 * fees.len() as f64).ceil() as usize).saturating_sub(1);
@@ -158,15 +195,35 @@ mod tests {
 
     fn low() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 0, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 100, fee: 120, ledger: 2, is_spike: false },
+            FeePoint {
+                timestamp: 0,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 100,
+                fee: 120,
+                ledger: 2,
+                is_spike: false,
+            },
         ]
     }
 
     fn high() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 0, fee: 400, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 100, fee: 800, ledger: 2, is_spike: true },
+            FeePoint {
+                timestamp: 0,
+                fee: 400,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 100,
+                fee: 800,
+                ledger: 2,
+                is_spike: true,
+            },
         ]
     }
 

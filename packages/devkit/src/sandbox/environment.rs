@@ -51,7 +51,9 @@ pub struct SandboxEnv {
 impl SandboxEnv {
     /// Creates a new [`SandboxEnv`] and seeds it with 10,000 records.
     pub fn new() -> Self {
-        let mut env = Self { records: Vec::with_capacity(10_000) };
+        let mut env = Self {
+            records: Vec::with_capacity(10_000),
+        };
         env.seed();
         env
     }
@@ -81,9 +83,19 @@ impl SandboxEnv {
                     Regime::Normal => 100 + (i * 400 / per_regime),
                     Regime::Rising => 400 + (i * 1_100 / per_regime),
                     Regime::Congested => 1_000 + (i * 4_000 / per_regime),
-                    Regime::Spike => if i % 50 == 0 { 50_000 } else { 100 + (i % 50) * 4 },
+                    Regime::Spike => {
+                        if i % 50 == 0 {
+                            50_000
+                        } else {
+                            100 + (i % 50) * 4
+                        }
+                    }
                 };
-                self.records.push(FeeRecord { timestamp_ms, fee_stroops, regime });
+                self.records.push(FeeRecord {
+                    timestamp_ms,
+                    fee_stroops,
+                    regime,
+                });
             }
         }
     }
@@ -152,7 +164,12 @@ mod tests {
     #[test]
     fn each_regime_has_2500_records() {
         let env = SandboxEnv::new();
-        for regime in [Regime::Normal, Regime::Rising, Regime::Congested, Regime::Spike] {
+        for regime in [
+            Regime::Normal,
+            Regime::Rising,
+            Regime::Congested,
+            Regime::Spike,
+        ] {
             assert_eq!(env.records_for_regime(regime).len(), 2_500);
         }
     }

@@ -1,5 +1,5 @@
-use stellar_devkit::sandbox::environment::SandboxEnv;
 use stellar_devkit::analytics::volatility::bollinger_bands;
+use stellar_devkit::sandbox::environment::SandboxEnv;
 
 #[test]
 fn test_sandbox_to_analytics_pipeline() {
@@ -8,9 +8,7 @@ fn test_sandbox_to_analytics_pipeline() {
 
     assert!(!records.is_empty(), "Sandbox should have records");
 
-    let values: Vec<f64> = records.iter()
-        .map(|r| r.fee_stroops as f64)
-        .collect();
+    let values: Vec<f64> = records.iter().map(|r| r.fee_stroops as f64).collect();
 
     let bands = bollinger_bands(&values, 20);
 
@@ -29,7 +27,10 @@ fn test_sandbox_to_analytics_pipeline() {
         }
     }
 
-    println!("Bollinger Bands analysis: {} within, {} outside", within_bands, outside_bands);
+    println!(
+        "Bollinger Bands analysis: {} within, {} outside",
+        within_bands, outside_bands
+    );
 
     assert!(
         within_bands > outside_bands,

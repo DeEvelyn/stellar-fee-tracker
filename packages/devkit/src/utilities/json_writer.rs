@@ -43,8 +43,18 @@ mod tests {
 
     fn sample_points() -> Vec<FeePoint> {
         vec![
-            FeePoint { timestamp: 1000, fee: 100, ledger: 1, is_spike: false },
-            FeePoint { timestamp: 1005, fee: 1000, ledger: 2, is_spike: true },
+            FeePoint {
+                timestamp: 1000,
+                fee: 100,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 1005,
+                fee: 1000,
+                ledger: 2,
+                is_spike: true,
+            },
         ]
     }
 

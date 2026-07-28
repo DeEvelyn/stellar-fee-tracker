@@ -76,7 +76,11 @@ mod tests {
     use super::*;
 
     fn make_record(fee_stroops: u64) -> FeeRecord {
-        FeeRecord { timestamp_ms: 1_000, fee_stroops, sequence: 1 }
+        FeeRecord {
+            timestamp_ms: 1_000,
+            fee_stroops,
+            sequence: 1,
+        }
     }
 
     #[test]
