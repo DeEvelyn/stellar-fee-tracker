@@ -207,6 +207,244 @@ devkit benchmark --samples 1000
 devkit mock --port 8080 --scenario spike
 ```
 
+## CLI v2
+
+CLI v2 introduces a richer set of analysis and data-quality subcommands on top of the original replay/export/benchmark/mock/simulate set. All v2 subcommands follow the same invocation pattern:
+
+```bash
+devkit <SUBCOMMAND> [OPTIONS]
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `validate` | Run data-quality checks on a fee CSV or JSON file and print a quality report |
+| `repair` | Detect and fill gaps in a fee dataset; outputs the repaired records |
+| `compare` | Compare two fee datasets and report statistical differences |
+| `inspect` | Print a statistical summary (min, max, mean, spikes) for a fee dataset |
+| `convert` | Convert fee data between CSV and JSON formats |
+| `health` | Check the health of the devkit environment (config, paths, connectivity) |
+| `metrics` | Print summary analytics (trend, volatility, percentiles) for a fee file |
+| `completions` | Generate shell completion scripts for bash, zsh, fish, or PowerShell |
+| `version` | Print the devkit version and build metadata |
+| `config` | Show, validate, or reset the active devkit configuration |
+
+### `validate` — Data quality checks
+
+Validates a fee CSV or JSON file and outputs a quality report.
+
+```bash
+# Validate a CSV file (text report)
+devkit validate --file fees.csv --format csv
+
+# Validate a JSON file and emit a machine-readable JSON report
+devkit validate --file fees.json --format json --output-format json
+
+# Pipe data directly from another command
+cat fees.csv | devkit validate --format csv
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the fee data file |
+| `--format <fmt>` | `csv` | Input format: `csv` or `json` |
+| `--output-format <fmt>` | `text` | Report format: `text` or `json` |
+| `--quiet` | `false` | Suppress informational output; print only the final result |
+
+### `repair` — Gap detection and fill
+
+Detects missing ledgers or timestamp gaps and fills them with interpolated records.
+
+```bash
+# Repair a CSV file and write the result to a new file
+devkit repair --file fees.csv --output repaired.csv
+
+# Repair with a custom gap threshold (in seconds)
+devkit repair --file fees.csv --gap-threshold 30 --output repaired.csv
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the input fee CSV file |
+| `--output <PATH>` | `repaired.csv` | Path to write the repaired output |
+| `--gap-threshold <secs>` | `10` | Minimum gap size (seconds) to trigger interpolation |
+
+### `compare` — Dataset comparison
+
+Compares two fee datasets and prints statistical differences between them.
+
+```bash
+# Compare two CSV files
+devkit compare --baseline baseline.csv --candidate candidate.csv
+
+# Output the comparison as JSON
+devkit compare --baseline baseline.csv --candidate candidate.csv --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--baseline <PATH>` | — | Path to the baseline fee CSV file |
+| `--candidate <PATH>` | — | Path to the candidate fee CSV file |
+| `--output-format <fmt>` | `text` | Report format: `text` or `json` |
+
+### `inspect` — Fee data summary
+
+Prints a statistical overview of a fee dataset including count, min, max, mean, spike count, and percentiles.
+
+```bash
+# Inspect a CSV file
+devkit inspect --file fees.csv
+
+# Inspect a JSON file with JSON output
+devkit inspect --file fees.json --format json --output-format json
+
+# Pipe from another command
+cat fees.csv | devkit inspect
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the fee data file |
+| `--format <fmt>` | `csv` | Input format: `csv` or `json` |
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+
+### `convert` — Format conversion
+
+Converts fee data between CSV and JSON.
+
+```bash
+# CSV → JSON
+devkit convert --file fees.csv --from csv --to json --output fees.json
+
+# JSON → CSV
+devkit convert --file fees.json --from json --to csv --output fees.csv
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the input fee data file |
+| `--from <fmt>` | `csv` | Source format: `csv` or `json` |
+| `--to <fmt>` | `json` | Target format: `csv` or `json` |
+| `--output <PATH>` | — | Path to write the converted file |
+
+### `health` — Environment health check
+
+Checks the devkit environment: config validity, database accessibility, and Horizon reachability.
+
+```bash
+# Run all health checks
+devkit health
+
+# Output as JSON (e.g. for CI pipelines)
+devkit health --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+| `--config <PATH>` | `devkit.toml` | Path to the devkit configuration file |
+
+### `metrics` — Analytics summary
+
+Computes trend, volatility, and percentile analytics over a fee dataset and prints a summary.
+
+```bash
+# Print analytics for a CSV file
+devkit metrics --file fees.csv
+
+# JSON output for scripting
+devkit metrics --file fees.csv --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the fee data file |
+| `--format <fmt>` | `csv` | Input format: `csv` or `json` |
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+
+### `completions` — Shell completions
+
+Generates shell completion scripts for the devkit binary.
+
+```bash
+# Bash
+devkit completions --shell bash >> ~/.bash_completion
+
+# Zsh
+devkit completions --shell zsh > ~/.zfunc/_devkit
+
+# Fish
+devkit completions --shell fish > ~/.config/fish/completions/devkit.fish
+
+# PowerShell
+devkit completions --shell powershell >> $PROFILE
+```
+
+Options:
+
+| Flag | Required | Description |
+|---|---|---|
+| `--shell <SHELL>` | Yes | Target shell: `bash`, `zsh`, `fish`, or `powershell` |
+
+### `version` — Version information
+
+Prints the devkit version, build date, and Rust toolchain version.
+
+```bash
+devkit version
+
+# Machine-readable JSON
+devkit version --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+
+### `config` — Configuration management
+
+Shows the active configuration, validates it, or resets it to defaults.
+
+```bash
+# Show the active configuration (merged TOML + env)
+devkit config show
+
+# Validate the active configuration
+devkit config validate
+
+# Show the path to the active config file
+devkit config path
+
+# Reset to defaults (writes devkit.toml.example to devkit.toml)
+devkit config reset
+```
+
+Sub-subcommands:
+
+| Sub-command | Description |
+|---|---|
+| `show` | Print all resolved configuration values with their source (file / env / default) |
+| `validate` | Run the config validator and report any errors or warnings |
+| `path` | Print the path to the active configuration file |
+| `reset` | Write the default configuration to `devkit.toml` |
+
 ## Adding to Your Crate
 
 ```toml
