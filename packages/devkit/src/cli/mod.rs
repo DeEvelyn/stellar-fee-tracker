@@ -115,16 +115,6 @@ impl InputSource {
     }
 }
 
-/// Arguments for the `validate` subcommand.
-///
-/// Supports piped input: `cat fees.csv | devkit validate --format csv`
-pub struct ValidateArgs {
-    /// Input source (file path or stdin).
-    pub input: InputSource,
-    /// Format of the input data: "csv" or "json".
-    pub format: String,
-    /// Output format for the report: "text" or "json".
-    pub output_format: String,
 // ── validate (issue #391) ────────────────────────────────────────────────────
 
 /// Arguments for the `validate` subcommand.
@@ -151,9 +141,6 @@ pub struct ValidateArgs {
 impl Default for ValidateArgs {
     fn default() -> Self {
         Self {
-            input: InputSource::Stdin,
-            format: "csv".to_string(),
-            output_format: "text".to_string(),
             file: std::path::PathBuf::from("fees.csv"),
             format: "csv".into(),
             output_format: "text".into(),
@@ -163,42 +150,6 @@ impl Default for ValidateArgs {
 }
 
 impl ValidateArgs {
-    /// Run the validate subcommand, printing a data quality report.
-    pub fn run(&self) {
-        let points = match self.format.as_str() {
-            "csv" => {
-                match self.input.load_csv() {
-                    Ok(result) => {
-                        if result.skipped > 0 {
-                            eprintln!("Warning: {} malformed rows were skipped", result.skipped);
-                        }
-                        result.points
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading CSV: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-            "json" => match self.input.load_json() {
-                Ok(pts) => pts,
-                Err(e) => {
-                    eprintln!("Error reading JSON: {}", e);
-                    std::process::exit(1);
-                }
-            },
-            fmt => {
-                eprintln!("Unsupported format: {}. Use 'csv' or 'json'.", fmt);
-                std::process::exit(1);
-            }
-        };
-
-        if points.is_empty() {
-            eprintln!("No fee records found in input.");
-            std::process::exit(1);
-        }
-
-        let report = DataQualityReport::from_points(&points);
     /// Run the validate subcommand on the given fee points.
     pub fn run(&self, points: &[crate::simulation::fee_model::FeePoint]) {
         let report = crate::data_quality::validator::Validator::run(points);
@@ -207,70 +158,8 @@ impl ValidateArgs {
         } else {
             println!("{}", report.display());
         }
-    }
-}
-
-/// Arguments for the `inspect` subcommand.
-///
-/// Supports piped input: `cat fees.csv | devkit inspect --format csv`
-pub struct InspectArgs {
-    /// Input source (file path or stdin).
-    pub input: InputSource,
-    /// Format of the input data: "csv" or "json".
-    pub format: String,
-    /// Output format: "text" or "json".
-    pub output_format: String,
-}
-
-impl Default for InspectArgs {
-    fn default() -> Self {
-        Self {
-            input: InputSource::Stdin,
-            format: "csv".to_string(),
-            output_format: "text".to_string(),
-        }
-    }
-}
-
-impl InspectArgs {
-    /// Run the inspect subcommand, printing a summary of the fee data.
-    pub fn run(&self) {
-        let points = match self.format.as_str() {
-            "csv" => match self.input.load_csv() {
-                Ok(result) => {
-                    if result.skipped > 0 {
-                        eprintln!("Warning: {} malformed rows were skipped", result.skipped);
-                    }
-                    result.points
-                }
-                Err(e) => {
-                    eprintln!("Error reading CSV: {}", e);
-                    std::process::exit(1);
-                }
-            },
-            "json" => match self.input.load_json() {
-                Ok(pts) => pts,
-                Err(e) => {
-                    eprintln!("Error reading JSON: {}", e);
-                    std::process::exit(1);
-                }
-            },
-            fmt => {
-                eprintln!("Unsupported format: {}. Use 'csv' or 'json'.", fmt);
-                std::process::exit(1);
-            }
-        };
-
-        if points.is_empty() {
-            eprintln!("No fee records found in input.");
-            std::process::exit(1);
-        }
-
-        let summary = FeeSummary::from_points(&points);
-        if self.output_format == "json" {
-            println!("{}", summary.to_json());
-        } else {
-            println!("{}", summary.display());
+        if !self.quiet && !report.is_clean() {
+            eprintln!("Validation failed: {} issue(s) found.", report.findings.len());
         }
     }
 }
@@ -422,15 +311,6 @@ impl FeeSummary {
             self.p95,
             self.p99,
         )
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Clap CLI definition
-// ---------------------------------------------------------------------------
-        if !self.quiet && !report.is_clean() {
-            eprintln!("Validation failed: {} issue(s) found.", report.findings.len());
-        }
     }
 }
 
@@ -715,14 +595,9 @@ pub enum Commands {
         /// Output format: text or json
         #[arg(long, default_value = "text", value_name = "FORMAT")]
         output_format: String,
-    /// Validate fee data quality
-    Validate,
-    /// Repair fee data (gap fill, de-duplicate)
-    Repair,
+    },
     /// Compare two fee data distributions
     Compare,
-    /// Inspect a fee data file (summary + percentile table)
-    Inspect,
     /// Run devkit health checks
     Health {
         /// Output results as JSON.

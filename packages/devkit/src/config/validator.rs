@@ -1,6 +1,4 @@
-use std::net::SocketAddr;
-
-use super::types::DevkitConfig;
+use super::DevkitConfig;
 
 /// Severity level for a validation issue.
 #[derive(Debug, Clone, PartialEq, Eq)]

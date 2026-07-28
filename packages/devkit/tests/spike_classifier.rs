@@ -4,17 +4,17 @@ use stellar_devkit::analysis::spike_classifier::{SpikeClassifier, SpikeSeverity}
 
 #[test]
 fn classify_below_threshold_returns_none() {
-    assert_eq!(SpikeClassifier::classify(199, 100), None);
+    assert_eq!(SpikeClassifier::classify_with_baseline(199, 100), None);
 }
 
 #[test]
 fn classify_low_severity() {
     assert_eq!(
-        SpikeClassifier::classify(200, 100),
+        SpikeClassifier::classify_with_baseline(200, 100),
         Some(SpikeSeverity::Low)
     );
     assert_eq!(
-        SpikeClassifier::classify(499, 100),
+        SpikeClassifier::classify_with_baseline(499, 100),
         Some(SpikeSeverity::Low)
     );
 }
@@ -22,11 +22,11 @@ fn classify_low_severity() {
 #[test]
 fn classify_medium_severity() {
     assert_eq!(
-        SpikeClassifier::classify(500, 100),
+        SpikeClassifier::classify_with_baseline(500, 100),
         Some(SpikeSeverity::Medium)
     );
     assert_eq!(
-        SpikeClassifier::classify(999, 100),
+        SpikeClassifier::classify_with_baseline(999, 100),
         Some(SpikeSeverity::Medium)
     );
 }
@@ -34,11 +34,11 @@ fn classify_medium_severity() {
 #[test]
 fn classify_high_severity() {
     assert_eq!(
-        SpikeClassifier::classify(1_000, 100),
+        SpikeClassifier::classify_with_baseline(1_000, 100),
         Some(SpikeSeverity::High)
     );
     assert_eq!(
-        SpikeClassifier::classify(4_999, 100),
+        SpikeClassifier::classify_with_baseline(4_999, 100),
         Some(SpikeSeverity::High)
     );
 }
@@ -46,14 +46,14 @@ fn classify_high_severity() {
 #[test]
 fn classify_critical_severity() {
     assert_eq!(
-        SpikeClassifier::classify(5_001, 100),
+        SpikeClassifier::classify_with_baseline(5_001, 100),
         Some(SpikeSeverity::Critical)
     );
 }
 
 #[test]
 fn classify_zero_baseline_returns_none() {
-    assert_eq!(SpikeClassifier::classify(1_000, 0), None);
+    assert_eq!(SpikeClassifier::classify_with_baseline(1_000, 0), None);
 }
 
 // ── detect ────────────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ fn iqr_outliers_extreme_high_value_detected() {
 #[test]
 fn classify_exactly_2x_is_low() {
     assert_eq!(
-        SpikeClassifier::classify(200, 100),
+        SpikeClassifier::classify_with_baseline(200, 100),
         Some(SpikeSeverity::Low)
     );
 }
@@ -150,7 +150,7 @@ fn classify_exactly_2x_is_low() {
 #[test]
 fn classify_exactly_5x_is_medium() {
     assert_eq!(
-        SpikeClassifier::classify(500, 100),
+        SpikeClassifier::classify_with_baseline(500, 100),
         Some(SpikeSeverity::Medium)
     );
 }
@@ -158,7 +158,7 @@ fn classify_exactly_5x_is_medium() {
 #[test]
 fn classify_exactly_10x_is_high() {
     assert_eq!(
-        SpikeClassifier::classify(1_000, 100),
+        SpikeClassifier::classify_with_baseline(1_000, 100),
         Some(SpikeSeverity::High)
     );
 }
@@ -167,16 +167,16 @@ fn classify_exactly_10x_is_high() {
 fn classify_above_50x_is_critical() {
     // 50× boundary: strictly > 50 → Critical
     assert_eq!(
-        SpikeClassifier::classify(5_001, 100),
+        SpikeClassifier::classify_with_baseline(5_001, 100),
         Some(SpikeSeverity::Critical)
     );
     assert_eq!(
-        SpikeClassifier::classify(10_000, 100),
+        SpikeClassifier::classify_with_baseline(10_000, 100),
         Some(SpikeSeverity::Critical)
     );
 }
 
 #[test]
 fn classify_just_below_2x_is_none() {
-    assert_eq!(SpikeClassifier::classify(199, 100), None);
+    assert_eq!(SpikeClassifier::classify_with_baseline(199, 100), None);
 }

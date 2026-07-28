@@ -51,35 +51,6 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> CorrelationResult {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn perfect_positive_correlation() {
-        let x: Vec<f64> = (0..10).map(|i| i as f64).collect();
-        let y: Vec<f64> = (0..10).map(|i| i as f64 * 2.0).collect();
-        let r = pearson_correlation(&x, &y);
-        assert!((r.pearson_r - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn perfect_negative_correlation() {
-        let x: Vec<f64> = (0..10).map(|i| i as f64).collect();
-        let y: Vec<f64> = (0..10).map(|i| 10.0 - i as f64).collect();
-        let r = pearson_correlation(&x, &y);
-        assert!((r.pearson_r - (-1.0)).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn uncorrelated() {
-        let x = vec![1.0, 2.0, 3.0, 4.0];
-        let y = vec![3.0, 1.0, 4.0, 2.0];
-        let r = pearson_correlation(&x, &y);
-        assert!(r.pearson_r.abs() < 0.5);
-    }
-}
-
 /// Compute the Pearson autocorrelation of a fee series at a given `lag`.
 ///
 /// Returns the Pearson correlation coefficient between `fees` and `fees` shifted

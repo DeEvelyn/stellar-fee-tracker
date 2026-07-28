@@ -1,25 +1,49 @@
-use std::time::Duration;
-
 use rand::Rng;
 
-/// Compute the next retry delay using exponential back-off.
-///
-/// `base_ms`  – base delay in milliseconds.
-/// `max_ms`   – upper cap in milliseconds.
-/// `jitter`   – when `true`, adds a random offset of up to 20 % of the computed delay.
-pub fn exponential_backoff(attempt: u32, base_ms: u64, max_ms: u64, jitter: bool) -> Duration {
-    let exp = attempt.min(63);
-    let delay = base_ms.saturating_mul(1u64 << exp).min(max_ms);
+/// Strategy for computing delays between retry attempts.
+#[derive(Debug, Clone, Copy)]
+pub enum BackoffStrategy {
+    /// `base_ms * 2^attempt`, capped at `max_ms`.
+    Exponential {
+        base_ms: u64,
+        max_ms: u64,
+        jitter_pct: f64,
+    },
+    /// `base_ms * attempt`, capped at `max_ms`.
+    Linear { base_ms: u64, max_ms: u64 },
+    /// Fixed delay regardless of attempt count.
+    Fixed { delay_ms: u64 },
+}
 
-    let delay = if jitter {
-        let jitter_range = delay as f64 * 0.2;
-        let jitter_value = rand::thread_rng().gen_range(0.0..=jitter_range);
-        (delay as f64 + jitter_value) as u64
-    } else {
-        delay
-    };
-
-    Duration::from_millis(delay)
+/// Compute the delay in milliseconds for a given attempt (0-indexed).
+pub fn compute_delay(strategy: &BackoffStrategy, attempt: u32) -> u64 {
+    match strategy {
+        BackoffStrategy::Exponential {
+            base_ms,
+            max_ms,
+            jitter_pct,
+        } => {
+            let exp = attempt as u32;
+            let raw = base_ms.saturating_mul(1u64.checked_shl(exp).unwrap_or(u64::MAX));
+            let capped = raw.min(*max_ms);
+            if *jitter_pct > 0.0 {
+                let jitter_range = (capped as f64 * jitter_pct / 100.0) as u64;
+                if jitter_range > 0 {
+                    let jitter = rand::thread_rng().gen_range(0..=jitter_range);
+                    capped.saturating_add(jitter)
+                } else {
+                    capped
+                }
+            } else {
+                capped
+            }
+        }
+        BackoffStrategy::Linear { base_ms, max_ms } => {
+            let raw = base_ms.saturating_mul(attempt as u64);
+            raw.min(*max_ms)
+        }
+        BackoffStrategy::Fixed { delay_ms } => *delay_ms,
+    }
 }
 
 #[cfg(test)]
@@ -27,33 +51,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_jitter_doubling() {
-        let d = exponential_backoff(0, 100, 5000, false);
-        assert_eq!(d, Duration::from_millis(100));
-
-        let d = exponential_backoff(1, 100, 5000, false);
-        assert_eq!(d, Duration::from_millis(200));
-
-        let d = exponential_backoff(2, 100, 5000, false);
-        assert_eq!(d, Duration::from_millis(400));
+    fn exponential_delay_attempts() {
+        let strategy = BackoffStrategy::Exponential {
+            base_ms: 100,
+            max_ms: 5000,
+            jitter_pct: 0.0,
+        };
+        assert_eq!(compute_delay(&strategy, 0), 100);
+        assert_eq!(compute_delay(&strategy, 1), 200);
+        assert_eq!(compute_delay(&strategy, 2), 400);
+        assert_eq!(compute_delay(&strategy, 3), 800);
     }
 
     #[test]
-    fn max_cap() {
-        let d = exponential_backoff(20, 100, 5000, false);
-        assert_eq!(d, Duration::from_millis(5000));
+    fn exponential_cap() {
+        let strategy = BackoffStrategy::Exponential {
+            base_ms: 1000,
+            max_ms: 3000,
+            jitter_pct: 0.0,
+        };
+        assert_eq!(compute_delay(&strategy, 0), 1000);
+        assert_eq!(compute_delay(&strategy, 1), 2000);
+        assert_eq!(compute_delay(&strategy, 2), 3000);
+        assert_eq!(compute_delay(&strategy, 3), 3000);
     }
 
     #[test]
-    fn jitter_increases_delay() {
-        let d = exponential_backoff(3, 100, 10000, true);
-        assert!(d >= Duration::from_millis(800));
-        assert!(d <= Duration::from_millis(960));
+    fn linear_delay() {
+        let strategy = BackoffStrategy::Linear {
+            base_ms: 100,
+            max_ms: 1000,
+        };
+        assert_eq!(compute_delay(&strategy, 0), 0);
+        assert_eq!(compute_delay(&strategy, 1), 100);
+        assert_eq!(compute_delay(&strategy, 2), 200);
+        assert_eq!(compute_delay(&strategy, 3), 300);
     }
 
     #[test]
-    fn attempt_zero() {
-        let d = exponential_backoff(0, 500, 10000, false);
-        assert_eq!(d, Duration::from_millis(500));
+    fn linear_cap() {
+        let strategy = BackoffStrategy::Linear {
+            base_ms: 500,
+            max_ms: 1200,
+        };
+        assert_eq!(compute_delay(&strategy, 0), 0);
+        assert_eq!(compute_delay(&strategy, 1), 500);
+        assert_eq!(compute_delay(&strategy, 2), 1000);
+        assert_eq!(compute_delay(&strategy, 3), 1200);
+    }
+
+    #[test]
+    fn fixed_delay() {
+        let strategy = BackoffStrategy::Fixed { delay_ms: 250 };
+        assert_eq!(compute_delay(&strategy, 0), 250);
+        assert_eq!(compute_delay(&strategy, 5), 250);
     }
 }

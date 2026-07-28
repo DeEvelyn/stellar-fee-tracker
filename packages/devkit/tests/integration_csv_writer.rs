@@ -11,7 +11,7 @@ fn test_csv_writer_creates_valid_file() {
         writer.write_header().expect("Failed to write header");
         for i in 0..10 {
             writer
-                .write_row(stellar_devkit::io::csv::FeeRecord {
+                .write_row(&stellar_devkit::io::csv::FeeRecord {
                     timestamp_ms: 1700000000000 + i * 6000,
                     fee_stroops: 100 + i as u64,
                     sequence: i as u64,
@@ -38,7 +38,7 @@ fn test_csv_writer_roundtrip() {
     {
         let mut writer = CsvWriter::new(&mut csv_file).expect("Failed to create CsvWriter");
         writer.write_header().expect("Failed to write header");
-        writer.write_row(record).expect("Failed to write row");
+        writer.write_row(&record).expect("Failed to write row");
         writer.flush().expect("Failed to flush");
     }
 

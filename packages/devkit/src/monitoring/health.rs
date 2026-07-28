@@ -43,10 +43,18 @@ pub trait Check {
 }
 
 /// A health check registry that runs configured checks.
-#[derive(Debug)]
 pub struct HealthRegistry {
     checks: Vec<Box<dyn Check + Send>>,
     start: Instant,
+}
+
+impl std::fmt::Debug for HealthRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HealthRegistry")
+            .field("checks", &self.checks.len())
+            .field("start", &self.start)
+            .finish()
+    }
 }
 
 impl Default for HealthRegistry {

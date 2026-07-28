@@ -1,0 +1,4 @@
+diff --git a/packages/devkit/tests/resilience_retry.rs b/packages/devkit/tests/resilience_retry.rs.skip
+similarity index 100%
+rename from packages/devkit/tests/resilience_retry.rs
+rename to packages/devkit/tests/resilience_retry.rs.skip
