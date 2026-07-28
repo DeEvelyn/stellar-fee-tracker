@@ -56,6 +56,25 @@ pub struct FeeCharged {
     pub p99: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct HorizonTransactionRecord {
+    pub hash: String,
+    pub ledger: u64,
+    pub created_at: String,
+    pub fee_charged: u64,
+    pub successful: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HorizonTransactionsResponse {
+    pub _embedded: HorizonEmbedded,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HorizonEmbedded {
+    pub records: Vec<HorizonTransactionRecord>,
+}
+
 impl HorizonClient {
     pub async fn fetch_fee_stats(&self) -> Result<HorizonFeeStats, AppError> {
         let url = format!("{}/fee_stats", self.base_url);
@@ -80,6 +99,38 @@ impl HorizonClient {
             .map_err(|err| AppError::Parse(err.to_string()))?;
 
         Ok(stats)
+    }
+
+    pub async fn fetch_account_transactions(
+        &self,
+        account_id: &str,
+        limit: u32,
+    ) -> Result<Vec<HorizonTransactionRecord>, AppError> {
+        let url = format!(
+            "{}/accounts/{}/transactions?order=desc&limit={}",
+            self.base_url, account_id, limit
+        );
+
+        let response = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|err| AppError::Network(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(AppError::Network(format!(
+                "Horizon returned HTTP {}",
+                response.status()
+            )));
+        }
+
+        let data = response
+            .json::<HorizonTransactionsResponse>()
+            .await
+            .map_err(|err| AppError::Parse(err.to_string()))?;
+
+        Ok(data._embedded.records)
     }
 }
 
