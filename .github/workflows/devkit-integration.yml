@@ -1,0 +1,52 @@
+name: Devkit Integration Tests
+
+on:
+  push:
+    branches: [main]
+    paths: ['packages/devkit/**', '.github/workflows/devkit-integration.yml']
+  pull_request:
+    branches: [main]
+    paths: ['packages/devkit/**', '.github/workflows/devkit-integration.yml']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/devkit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/devkit
+
+      - name: Run integration tests
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          tests=(tests/integration_*.rs)
+
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "No integration tests found."
+            exit 0
+          fi
+
+          for test_file in "${tests[@]}"; do
+            test_name="$(basename "$test_file" .rs)"
+            echo "Running $test_name"
+            cargo test --all-features --test "$test_name" -- --nocapture
+          done
