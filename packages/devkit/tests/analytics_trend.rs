@@ -149,10 +149,12 @@ fn fee_velocity_respects_window() {
     let mut fees: Vec<(u64, u64)> = (0..100)
         .map(|i| (i as u64 * 100, 200u64)) // flat for 10 s
         .collect();
-    // Add two more points 1 s apart with a rising fee.
+    // Add two more points 1 s apart with a rising fee, leaving a 3 s gap
+    // after the flat sequence so the window cutoff doesn't land exactly on
+    // the flat sequence's last point (which would pull it into the window).
     let last_ts = fees.last().unwrap().0;
-    fees.push((last_ts + 1_000, 200));
-    fees.push((last_ts + 2_000, 400));
+    fees.push((last_ts + 3_000, 200));
+    fees.push((last_ts + 4_000, 400));
     // With window_secs=2, only the last two points matter → 200 stroops/sec.
     let v = fee_velocity(&fees, 2);
     assert!(
