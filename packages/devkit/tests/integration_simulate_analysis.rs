@@ -1,6 +1,6 @@
-use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig};
 use stellar_devkit::analysis::percentile::Percentile;
 use stellar_devkit::analysis::spike_classifier::{SpikeClassifier, SpikeSeverity};
+use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig};
 
 #[test]
 fn test_simulate_to_analysis_pipeline() {
@@ -21,7 +21,8 @@ fn test_simulate_to_analysis_pipeline() {
 
     let baseline = FeeModelConfig::default().base_fee;
     let classifier = SpikeClassifier::new(baseline);
-    let spike_count = points.iter()
+    let spike_count = points
+        .iter()
         .filter(|p| {
             matches!(
                 classifier.classify(p.fee),
@@ -30,7 +31,16 @@ fn test_simulate_to_analysis_pipeline() {
         })
         .count();
 
-    println!("Analyzed {} fees: p50={}, p95={}, spikes={}", points.len(), p50, p95, spike_count);
+    println!(
+        "Analyzed {} fees: p50={}, p95={}, spikes={}",
+        points.len(),
+        p50,
+        p95,
+        spike_count
+    );
 
-    assert!(spike_count < points.len() / 2, "Spike count should be less than half of total");
+    assert!(
+        spike_count < points.len() / 2,
+        "Spike count should be less than half of total"
+    );
 }

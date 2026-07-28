@@ -219,17 +219,45 @@ fn compare_identical_datasets_have_zero_diff() {
 fn compare_delta_values_are_correct() {
     // Manually constructed minimal datasets for precise delta assertions.
     let a: Vec<FeePoint> = vec![
-        FeePoint { timestamp: 0, fee: 100, ledger: 1, is_spike: false },
-        FeePoint { timestamp: 5, fee: 200, ledger: 2, is_spike: false },
+        FeePoint {
+            timestamp: 0,
+            fee: 100,
+            ledger: 1,
+            is_spike: false,
+        },
+        FeePoint {
+            timestamp: 5,
+            fee: 200,
+            ledger: 2,
+            is_spike: false,
+        },
     ];
     let b: Vec<FeePoint> = vec![
-        FeePoint { timestamp: 0, fee: 300, ledger: 1, is_spike: false },
-        FeePoint { timestamp: 5, fee: 500, ledger: 2, is_spike: false },
+        FeePoint {
+            timestamp: 0,
+            fee: 300,
+            ledger: 1,
+            is_spike: false,
+        },
+        FeePoint {
+            timestamp: 5,
+            fee: 500,
+            ledger: 2,
+            is_spike: false,
+        },
     ];
     // mean_a = 150, mean_b = 400, mean_diff = -250, mean_diff_pct = -62.5
     let r = compare(&a, &b);
-    assert!((r.mean_a - 150.0).abs() < 0.01, "mean_a should be 150, got {:.2}", r.mean_a);
-    assert!((r.mean_b - 400.0).abs() < 0.01, "mean_b should be 400, got {:.2}", r.mean_b);
+    assert!(
+        (r.mean_a - 150.0).abs() < 0.01,
+        "mean_a should be 150, got {:.2}",
+        r.mean_a
+    );
+    assert!(
+        (r.mean_b - 400.0).abs() < 0.01,
+        "mean_b should be 400, got {:.2}",
+        r.mean_b
+    );
     assert!(
         (r.mean_diff - (-250.0)).abs() < 0.01,
         "mean_diff should be -250, got {:.2}",

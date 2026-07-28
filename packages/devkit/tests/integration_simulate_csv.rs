@@ -7,8 +7,8 @@ fn test_simulate_to_csv_pipeline() {
     use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig};
 
     let config = FeeModelConfig::default();
-    let model = FeeModel::new(config);
-    let fees = model.generate(100);
+    let mut model = FeeModel::new(config);
+    let fees = model.generate(100, 0);
 
     assert_eq!(fees.len(), 100, "Should generate 100 fee records");
 
@@ -28,12 +28,25 @@ fn test_simulate_to_csv_pipeline() {
 
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 101, "CSV should have 1 header + 100 data rows");
-    assert!(lines[0].contains("timestamp_ms"), "Header should contain timestamp_ms");
-    assert!(lines[0].contains("fee_stroops"), "Header should contain fee_stroops");
+    assert!(
+        lines[0].contains("timestamp"),
+        "Header should contain timestamp"
+    );
+    assert!(
+        lines[0].contains("fee_amount"),
+        "Header should contain fee_amount"
+    );
 
     // Verify record count matches
     let data_lines = &lines[1..];
-    assert_eq!(data_lines.len(), fees.len(), "Data rows should match generated count");
+    assert_eq!(
+        data_lines.len(),
+        fees.len(),
+        "Data rows should match generated count"
+    );
 
-    println!("Successfully simulated {} fees, exported to CSV, and verified", fees.len());
+    println!(
+        "Successfully simulated {} fees, exported to CSV, and verified",
+        fees.len()
+    );
 }

@@ -3,8 +3,8 @@
 //! Runs `devkit validate` on clean and dirty fee CSV files.
 //! Asserts exit codes and output messages.
 
-use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig};
 use stellar_devkit::cli::export::Export;
+use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig};
 
 // ---------------------------------------------------------------------------
 // Helpers

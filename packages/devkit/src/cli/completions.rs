@@ -61,7 +61,12 @@ impl CompletionsArgs {
     /// Generate and print the shell completion script to stdout.
     pub fn run(&self) {
         let mut cmd = Cli::command();
-        generate(self.shell.to_clap_shell(), &mut cmd, "devkit", &mut io::stdout());
+        generate(
+            self.shell.to_clap_shell(),
+            &mut cmd,
+            "devkit",
+            &mut io::stdout(),
+        );
     }
 
     /// Generate the completion script into a `String` (useful for testing).

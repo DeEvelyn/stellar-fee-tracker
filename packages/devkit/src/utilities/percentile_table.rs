@@ -56,8 +56,17 @@ impl PercentileTable {
              p90:  {} stroops\n\
              p95:  {} stroops\n\
              p99:  {} stroops",
-            self.p10, self.p20, self.p30, self.p40, self.p50,
-            self.p60, self.p70, self.p80, self.p90, self.p95, self.p99,
+            self.p10,
+            self.p20,
+            self.p30,
+            self.p40,
+            self.p50,
+            self.p60,
+            self.p70,
+            self.p80,
+            self.p90,
+            self.p95,
+            self.p99,
         )
     }
 
@@ -65,8 +74,17 @@ impl PercentileTable {
     pub fn to_json(&self) -> String {
         format!(
             r#"{{"p10":{},"p20":{},"p30":{},"p40":{},"p50":{},"p60":{},"p70":{},"p80":{},"p90":{},"p95":{},"p99":{}}}"#,
-            self.p10, self.p20, self.p30, self.p40, self.p50,
-            self.p60, self.p70, self.p80, self.p90, self.p95, self.p99,
+            self.p10,
+            self.p20,
+            self.p30,
+            self.p40,
+            self.p50,
+            self.p60,
+            self.p70,
+            self.p80,
+            self.p90,
+            self.p95,
+            self.p99,
         )
     }
 }
@@ -114,7 +132,9 @@ mod tests {
     fn to_json_contains_all_keys() {
         let t = PercentileTable::from_fees(&[100]).unwrap();
         let json = t.to_json();
-        for key in ["p10","p20","p30","p40","p50","p60","p70","p80","p90","p95","p99"] {
+        for key in [
+            "p10", "p20", "p30", "p40", "p50", "p60", "p70", "p80", "p90", "p95", "p99",
+        ] {
             assert!(json.contains(key));
         }
     }

@@ -8,9 +8,7 @@ pub fn assert_fee_in_range(fee: u64, min: u64, max: u64) -> Result<(), String> {
     if fee >= min && fee <= max {
         Ok(())
     } else {
-        Err(format!(
-            "Fee out of range: {fee} not in [{min}..{max}]"
-        ))
+        Err(format!("Fee out of range: {fee} not in [{min}..{max}]"))
     }
 }
 
@@ -18,11 +16,7 @@ pub fn assert_fee_in_range(fee: u64, min: u64, max: u64) -> Result<(), String> {
 ///
 /// `threshold_pct` is a percentage value, e.g. `50.0` means the fee must be
 /// at least 50 % above the baseline.
-pub fn assert_spike_detected(
-    fee: u64,
-    baseline: u64,
-    threshold_pct: f64,
-) -> Result<(), String> {
+pub fn assert_spike_detected(fee: u64, baseline: u64, threshold_pct: f64) -> Result<(), String> {
     if baseline == 0 {
         return Err("baseline fee is zero — cannot compute spike".into());
     }

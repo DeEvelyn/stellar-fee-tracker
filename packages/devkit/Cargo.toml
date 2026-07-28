@@ -6,6 +6,7 @@ description = "Developer toolkit for testing and simulating the Stellar fee trac
 
 [dependencies]
 axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
 indicatif = "0.17"
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"

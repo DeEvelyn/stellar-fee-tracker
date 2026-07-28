@@ -35,7 +35,7 @@ pub fn ks_statistic(a: &[f64], b: &[f64]) -> f64 {
     // Build merged evaluation grid.
     let mut grid: Vec<f64> = sorted_a.iter().chain(sorted_b.iter()).cloned().collect();
     grid.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
-    grid.dedup_by(|a, b| (a - *b).abs() < f64::EPSILON);
+    grid.dedup_by(|a, b| (*a - *b).abs() < f64::EPSILON);
 
     let mut max_diff = 0.0_f64;
     let mut i_a = 0usize;

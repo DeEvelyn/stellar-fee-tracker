@@ -1,5 +1,5 @@
-use stellar_devkit::sandbox::scenario::{Scenario, Fixture};
 use chrono::Duration;
+use stellar_devkit::sandbox::scenario::{Fixture, Scenario};
 
 #[test]
 fn test_builder_produces_correct_scenario_config() {

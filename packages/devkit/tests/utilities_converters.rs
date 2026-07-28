@@ -1,5 +1,5 @@
 use stellar_devkit::utilities::converters::{
-    xlm_to_stroop, stroop_to_xlm, ConversionError, STROOPS_PER_XLM,
+    stroop_to_xlm, xlm_to_stroop, ConversionError, STROOPS_PER_XLM,
 };
 
 #[test]

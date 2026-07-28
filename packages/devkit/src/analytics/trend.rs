@@ -36,7 +36,6 @@ pub fn trend_strength_score(fees: &[f64]) -> f64 {
     analyze_trend(fees).r_squared
 }
 
-
 /// Represents the direction of a fee trend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrendDirection {

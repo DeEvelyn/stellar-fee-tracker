@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[test]
 fn test_db_factory_creates_sqlite_database() {
@@ -8,7 +8,10 @@ fn test_db_factory_creates_sqlite_database() {
 
     let conn_str = format!("sqlite:{}", db_path.display());
 
-    assert!(conn_str.starts_with("sqlite:"), "connection string should start with sqlite:");
+    assert!(
+        conn_str.starts_with("sqlite:"),
+        "connection string should start with sqlite:"
+    );
     assert!(
         conn_str.contains("test_factory.db"),
         "connection string should contain database name"
@@ -33,5 +36,8 @@ fn test_db_factory_multiple_connections() {
     let conn_str1 = format!("sqlite:{}", db_path.display());
     let conn_str2 = format!("sqlite:{}", db_path.display());
 
-    assert_eq!(conn_str1, conn_str2, "same path should produce same connection string");
+    assert_eq!(
+        conn_str1, conn_str2,
+        "same path should produce same connection string"
+    );
 }

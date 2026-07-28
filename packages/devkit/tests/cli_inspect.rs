@@ -87,12 +87,7 @@ fn inspect_min_is_positive() {
 fn inspect_max_gte_min() {
     let pts = known_dataset();
     let s = summarise(&pts);
-    assert!(
-        s.max >= s.min,
-        "max ({}) must be >= min ({})",
-        s.max,
-        s.min
-    );
+    assert!(s.max >= s.min, "max ({}) must be >= min ({})", s.max, s.min);
 }
 
 #[test]
@@ -124,18 +119,8 @@ fn inspect_percentile_ordering() {
         s.median,
         s.p75
     );
-    assert!(
-        s.p75 <= s.p95,
-        "p75 ({}) must be <= p95 ({})",
-        s.p75,
-        s.p95
-    );
-    assert!(
-        s.p95 <= s.p99,
-        "p95 ({}) must be <= p99 ({})",
-        s.p95,
-        s.p99
-    );
+    assert!(s.p75 <= s.p95, "p75 ({}) must be <= p95 ({})", s.p75, s.p95);
+    assert!(s.p95 <= s.p99, "p95 ({}) must be <= p99 ({})", s.p95, s.p99);
 }
 
 #[test]

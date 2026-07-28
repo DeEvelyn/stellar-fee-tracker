@@ -23,7 +23,11 @@ pub struct SimulateArgs {
 
 impl Default for SimulateArgs {
     fn default() -> Self {
-        Self { base_fee: 100, spike_prob: 0.05, duration: 1_000 }
+        Self {
+            base_fee: 100,
+            spike_prob: 0.05,
+            duration: 1_000,
+        }
     }
 }
 
@@ -47,7 +51,10 @@ pub struct MockArgs {
 
 impl Default for MockArgs {
     fn default() -> Self {
-        Self { scenario: String::from("normal"), port: 8090 }
+        Self {
+            scenario: String::from("normal"),
+            port: 8090,
+        }
     }
 }
 
@@ -94,9 +101,7 @@ impl InputSource {
     }
 
     /// Load fee points using the CSV reader.
-    pub fn load_csv(
-        &self,
-    ) -> Result<crate::utilities::csv_reader::CsvReadResult, std::io::Error> {
+    pub fn load_csv(&self) -> Result<crate::utilities::csv_reader::CsvReadResult, std::io::Error> {
         match self {
             Self::File(path) => crate::utilities::csv_reader::read_csv_file(path),
             Self::Stdin => Ok(crate::utilities::csv_reader::read_csv_stdin()),
@@ -106,8 +111,10 @@ impl InputSource {
     /// Load fee points using the JSON reader.
     pub fn load_json(
         &self,
-    ) -> Result<Vec<crate::simulation::fee_model::FeePoint>, crate::utilities::json_reader::JsonReadError>
-    {
+    ) -> Result<
+        Vec<crate::simulation::fee_model::FeePoint>,
+        crate::utilities::json_reader::JsonReadError,
+    > {
         match self {
             Self::File(path) => crate::utilities::json_reader::read_json_file(path),
             Self::Stdin => crate::utilities::json_reader::read_json_stdin(),
@@ -115,16 +122,6 @@ impl InputSource {
     }
 }
 
-/// Arguments for the `validate` subcommand.
-///
-/// Supports piped input: `cat fees.csv | devkit validate --format csv`
-pub struct ValidateArgs {
-    /// Input source (file path or stdin).
-    pub input: InputSource,
-    /// Format of the input data: "csv" or "json".
-    pub format: String,
-    /// Output format for the report: "text" or "json".
-    pub output_format: String,
 // ── validate (issue #391) ────────────────────────────────────────────────────
 
 /// Arguments for the `validate` subcommand.
@@ -151,9 +148,6 @@ pub struct ValidateArgs {
 impl Default for ValidateArgs {
     fn default() -> Self {
         Self {
-            input: InputSource::Stdin,
-            format: "csv".to_string(),
-            output_format: "text".to_string(),
             file: std::path::PathBuf::from("fees.csv"),
             format: "csv".into(),
             output_format: "text".into(),
@@ -163,42 +157,6 @@ impl Default for ValidateArgs {
 }
 
 impl ValidateArgs {
-    /// Run the validate subcommand, printing a data quality report.
-    pub fn run(&self) {
-        let points = match self.format.as_str() {
-            "csv" => {
-                match self.input.load_csv() {
-                    Ok(result) => {
-                        if result.skipped > 0 {
-                            eprintln!("Warning: {} malformed rows were skipped", result.skipped);
-                        }
-                        result.points
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading CSV: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-            "json" => match self.input.load_json() {
-                Ok(pts) => pts,
-                Err(e) => {
-                    eprintln!("Error reading JSON: {}", e);
-                    std::process::exit(1);
-                }
-            },
-            fmt => {
-                eprintln!("Unsupported format: {}. Use 'csv' or 'json'.", fmt);
-                std::process::exit(1);
-            }
-        };
-
-        if points.is_empty() {
-            eprintln!("No fee records found in input.");
-            std::process::exit(1);
-        }
-
-        let report = DataQualityReport::from_points(&points);
     /// Run the validate subcommand on the given fee points.
     pub fn run(&self, points: &[crate::simulation::fee_model::FeePoint]) {
         let report = crate::data_quality::validator::Validator::run(points);
@@ -207,70 +165,11 @@ impl ValidateArgs {
         } else {
             println!("{}", report.display());
         }
-    }
-}
-
-/// Arguments for the `inspect` subcommand.
-///
-/// Supports piped input: `cat fees.csv | devkit inspect --format csv`
-pub struct InspectArgs {
-    /// Input source (file path or stdin).
-    pub input: InputSource,
-    /// Format of the input data: "csv" or "json".
-    pub format: String,
-    /// Output format: "text" or "json".
-    pub output_format: String,
-}
-
-impl Default for InspectArgs {
-    fn default() -> Self {
-        Self {
-            input: InputSource::Stdin,
-            format: "csv".to_string(),
-            output_format: "text".to_string(),
-        }
-    }
-}
-
-impl InspectArgs {
-    /// Run the inspect subcommand, printing a summary of the fee data.
-    pub fn run(&self) {
-        let points = match self.format.as_str() {
-            "csv" => match self.input.load_csv() {
-                Ok(result) => {
-                    if result.skipped > 0 {
-                        eprintln!("Warning: {} malformed rows were skipped", result.skipped);
-                    }
-                    result.points
-                }
-                Err(e) => {
-                    eprintln!("Error reading CSV: {}", e);
-                    std::process::exit(1);
-                }
-            },
-            "json" => match self.input.load_json() {
-                Ok(pts) => pts,
-                Err(e) => {
-                    eprintln!("Error reading JSON: {}", e);
-                    std::process::exit(1);
-                }
-            },
-            fmt => {
-                eprintln!("Unsupported format: {}. Use 'csv' or 'json'.", fmt);
-                std::process::exit(1);
-            }
-        };
-
-        if points.is_empty() {
-            eprintln!("No fee records found in input.");
-            std::process::exit(1);
-        }
-
-        let summary = FeeSummary::from_points(&points);
-        if self.output_format == "json" {
-            println!("{}", summary.to_json());
-        } else {
-            println!("{}", summary.display());
+        if !self.quiet && !report.is_clean() {
+            eprintln!(
+                "Validation failed: {} issue(s) found.",
+                report.findings.len()
+            );
         }
     }
 }
@@ -425,15 +324,6 @@ impl FeeSummary {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Clap CLI definition
-// ---------------------------------------------------------------------------
-        if !self.quiet && !report.is_clean() {
-            eprintln!("Validation failed: {} issue(s) found.", report.findings.len());
-        }
-    }
-}
-
 // ── repair (issue #392) ──────────────────────────────────────────────────────
 
 /// Arguments for the `repair` subcommand.
@@ -544,8 +434,10 @@ impl CompareArgs {
         target: &[crate::simulation::fee_model::FeePoint],
     ) {
         let result = crate::utilities::comparator::FeeComparator::compare(
-            baseline, target,
-            &self.label_baseline, &self.label_target,
+            baseline,
+            target,
+            &self.label_baseline,
+            &self.label_target,
         );
         if self.json {
             println!("{}", result.to_json());
@@ -599,9 +491,9 @@ impl InspectArgs {
 
         let fees: Vec<u64> = points.iter().map(|p| p.fee).collect();
         let count = fees.len();
-        let min   = *fees.iter().min().unwrap();
-        let max   = *fees.iter().max().unwrap();
-        let mean  = fees.iter().sum::<u64>() as f64 / count as f64;
+        let min = *fees.iter().min().unwrap();
+        let max = *fees.iter().max().unwrap();
+        let mean = fees.iter().sum::<u64>() as f64 / count as f64;
         let ts_min = points.iter().map(|p| p.timestamp).min().unwrap_or(0);
         let ts_max = points.iter().map(|p| p.timestamp).max().unwrap_or(0);
         let spike_count = points.iter().filter(|p| p.is_spike).count();
@@ -609,7 +501,10 @@ impl InspectArgs {
         let table = crate::utilities::percentile_table::PercentileTable::from_fees(&fees);
 
         if self.json {
-            let ptable_json = table.as_ref().map(|t| t.to_json()).unwrap_or_else(|| "{}".into());
+            let ptable_json = table
+                .as_ref()
+                .map(|t| t.to_json())
+                .unwrap_or_else(|| "{}".into());
             println!(
                 r#"{{"count":{count},"min":{min},"max":{max},"mean":{mean:.2},"spike_count":{spike_count},"ts_min":{ts_min},"ts_max":{ts_max},"percentiles":{ptable_json}}}"#,
             );
@@ -715,14 +610,9 @@ pub enum Commands {
         /// Output format: text or json
         #[arg(long, default_value = "text", value_name = "FORMAT")]
         output_format: String,
-    /// Validate fee data quality
-    Validate,
-    /// Repair fee data (gap fill, de-duplicate)
-    Repair,
+    },
     /// Compare two fee data distributions
     Compare,
-    /// Inspect a fee data file (summary + percentile table)
-    Inspect,
     /// Run devkit health checks
     Health {
         /// Output results as JSON.

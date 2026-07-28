@@ -82,7 +82,9 @@ fn volatility_empty_slice_returns_zeros() {
 
 #[test]
 fn bollinger_upper_gt_sma_gt_lower_for_non_constant_sequence() {
-    let fees: Vec<f64> = (0..50).map(|i| 100.0 + (i as f64 * 7.3).sin() * 30.0).collect();
+    let fees: Vec<f64> = (0..50)
+        .map(|i| 100.0 + (i as f64 * 7.3).sin() * 30.0)
+        .collect();
     let bands = bollinger_bands(&fees, 10);
     // For any point where std_dev > 0 (non-constant window), upper > sma > lower.
     for b in &bands {
