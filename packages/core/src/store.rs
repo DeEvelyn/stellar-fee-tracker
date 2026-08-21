@@ -92,6 +92,7 @@ impl FeeHistoryStore {
 /// (Issue #550). One snapshot corresponds to exactly one ledger, which
 /// makes persistence idempotent: re-polling the same ledger updates the
 /// existing row instead of duplicating it.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeeStatsSnapshot {
     pub ledger: u64,
@@ -109,6 +110,7 @@ pub struct FeeStatsSnapshot {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+#[allow(dead_code)]
 fn parse_u64_field(raw: &str, field: &str) -> Result<u64, AppError> {
     raw.trim().parse::<u64>().map_err(|_| {
         AppError::Parse(format!(
@@ -118,6 +120,7 @@ fn parse_u64_field(raw: &str, field: &str) -> Result<u64, AppError> {
     })
 }
 
+#[allow(dead_code)]
 fn parse_f64_field(raw: &str, field: &str) -> Result<f64, AppError> {
     raw.trim().parse::<f64>().map_err(|_| {
         AppError::Parse(format!(

@@ -43,10 +43,12 @@ impl RecommendationCache {
         );
     }
 
+    #[allow(dead_code)]
     pub fn invalidate(&mut self, key: &CacheKey) {
         self.entries.remove(key);
     }
 
+    #[allow(dead_code)]
     pub fn invalidate_all(&mut self) {
         self.entries.clear();
     }

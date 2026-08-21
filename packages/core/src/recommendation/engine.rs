@@ -107,6 +107,7 @@ impl FeeRecommendationEngine {
         Ok(result)
     }
 
+    #[allow(dead_code)]
     pub fn invalidate_cache(&self) {
         if let Ok(mut cache) = self.cache.try_write() {
             cache.invalidate_all();
@@ -306,6 +307,7 @@ fn percentile_value(sorted: &[u64], percentile: usize) -> u64 {
     sorted[rank - 1]
 }
 
+#[allow(dead_code)]
 fn find_fee_for_target_ledgers(fees: &[u64], target_ledgers: u32, p50: u64, p99: u64) -> u64 {
     if fees.is_empty() {
         return 100;
@@ -441,7 +443,7 @@ mod tests {
         let fees = sorted_fees();
         let (fee, conf) = engine.find_fee_for_confidence(&fees, 0.9, 2).await;
         assert!(fee >= 100);
-        assert!(conf >= 0.0 && conf <= 1.0);
+        assert!((0.0..=1.0).contains(&conf));
     }
 
     #[tokio::test]

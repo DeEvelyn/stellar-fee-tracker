@@ -23,7 +23,7 @@ pub fn compute_delay(strategy: &BackoffStrategy, attempt: u32) -> u64 {
             max_ms,
             jitter_pct,
         } => {
-            let exp = attempt as u32;
+            let exp = attempt;
             let raw = base_ms.saturating_mul(1u64.checked_shl(exp).unwrap_or(u64::MAX));
             let capped = raw.min(*max_ms);
             if *jitter_pct > 0.0 {

@@ -70,7 +70,7 @@ impl HorizonClient {
                 let fee_charged = r["fee_charged"].as_str()?.parse::<u64>().ok()?;
                 let ledger = r["ledger"].as_str()?.parse::<u64>().ok()?;
                 let created_at = r["created_at"].as_str()?.to_string();
-                let successful = r["successful"].as_bool()?;
+                let _successful = r["successful"].as_bool()?;
                 Some(crate::insights::types::FeeDataPoint {
                     fee_amount: fee_charged,
                     timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)
@@ -119,6 +119,7 @@ pub struct FeeCharged {
 /// the public API — this captures every field Horizon returns, including
 /// the ledger number, capacity usage, mean/median fee charged and the
 /// `max_fee` distribution.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeeStatsResponse {
     pub last_ledger: String,
@@ -128,6 +129,7 @@ pub struct FeeStatsResponse {
     pub max_fee: MaxFeeStats,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeeChargedStats {
     pub min: String,
@@ -148,6 +150,7 @@ pub struct FeeChargedStats {
     pub p99: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaxFeeStats {
     pub min: String,
@@ -189,6 +192,7 @@ impl HorizonClient {
     /// the public `/fees/current` API; this method surfaces every field —
     /// ledger number, capacity usage, mean/median fee charged and the
     /// `max_fee` distribution — required for accurate fee modelling.
+    #[allow(dead_code)]
     pub async fn fetch_fee_stats_full(&self) -> Result<FeeStatsResponse, AppError> {
         let url = format!("{}/fee_stats", self.base_url);
 

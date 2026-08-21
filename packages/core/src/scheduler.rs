@@ -233,6 +233,7 @@ pub async fn fetch_with_retry(
 /// [`FeeStatsSnapshot`] and persists it idempotently (one row per ledger,
 /// via `ON CONFLICT (ledger) DO UPDATE`). Snapshots older than the
 /// retention window are pruned. DB errors are logged, never fatal.
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub async fn run_fee_stats_polling(
     client: Arc<HorizonClient>,
@@ -277,6 +278,7 @@ pub async fn run_fee_stats_polling(
 }
 
 /// Execute a single `/fee_stats` poll cycle with retry and idempotent persistence.
+#[allow(dead_code)]
 async fn poll_fee_stats_once(
     client: &HorizonClient,
     repository: Option<&FeeRepository>,
@@ -345,6 +347,7 @@ async fn poll_fee_stats_once(
 ///
 /// Returns `Some(snapshot)` on the first successful fetch, or `None` if
 /// all attempts are exhausted.
+#[allow(dead_code)]
 pub async fn fetch_fee_stats_with_retry(
     client: &HorizonClient,
     max_attempts: u32,

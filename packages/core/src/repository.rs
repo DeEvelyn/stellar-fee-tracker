@@ -43,6 +43,7 @@ pub struct AlertEvent {
 }
 
 /// A persisted recommendation row.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recommendation {
     pub id: Option<i64>,
@@ -185,6 +186,7 @@ impl FeeRepository {
     /// same ledger updates the existing row (`ON CONFLICT (ledger) DO
     /// UPDATE`) instead of inserting a duplicate. Returns the number of
     /// rows written (always 1 on success).
+    #[allow(dead_code)]
     pub async fn upsert_fee_snapshot(
         &self,
         snapshot: &FeeStatsSnapshot,
@@ -232,6 +234,7 @@ impl FeeRepository {
 
     /// Fetch all fee stats snapshots with captured_at >= `since`,
     /// ordered by ledger ascending.
+    #[allow(dead_code)]
     pub async fn fetch_fee_snapshots_since(
         &self,
         since: DateTime<Utc>,
@@ -319,6 +322,7 @@ impl FeeRepository {
 
     /// Delete all fee_stats_snapshots captured before `cutoff`.
     /// Returns the number of rows deleted.
+    #[allow(dead_code)]
     pub async fn prune_fee_snapshots_older_than(
         &self,
         cutoff: DateTime<Utc>,
@@ -595,6 +599,7 @@ impl FeeRepository {
     // ---- Recommendations ----
 
     /// Persist a recommendation row. Returns the new row id.
+    #[allow(dead_code)]
     pub async fn insert_recommendation(&self, rec: &Recommendation) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             "INSERT INTO recommendations
@@ -618,6 +623,7 @@ impl FeeRepository {
     }
 
     /// Return fee amounts from `fee_data_points` with timestamp >= `since`, sorted ascending.
+    #[allow(dead_code)]
     pub async fn get_fees_since(&self, since: DateTime<Utc>) -> Result<Vec<u64>, sqlx::Error> {
         let since_str = since.to_rfc3339();
 
@@ -640,6 +646,7 @@ impl FeeRepository {
     }
 
     /// Query the most recent `limit` recommendation rows, newest first.
+    #[allow(dead_code)]
     pub async fn query_recent_recommendations(
         &self,
         limit: i64,
