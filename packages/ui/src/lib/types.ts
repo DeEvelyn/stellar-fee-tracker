@@ -101,3 +101,39 @@ export interface InsightsResponse {
 export interface HealthResponse {
   status: string
 }
+
+// ---- /fees/recommend ----
+export interface FeeAlternative {
+  fee: string
+  estimated_wait_ledgers: number
+  confidence: number
+  label: string
+}
+
+export interface RecommendResponse {
+  recommended_fee: string
+  fee_in_stroops: number
+  estimated_wait_ledgers: number
+  confidence: number
+  network_condition: string
+  alternatives: FeeAlternative[]
+}
+
+export type Urgency = "low" | "medium" | "high" | "urgent"
+
+export interface RecommendRequest {
+  target_ledgers?: number
+  urgency?: Urgency
+  max_fee?: string
+  /** Desired confidence level as a fraction (e.g. 0.90 for 90%) */
+  confidence?: number
+}
+
+/** Alias exported for consumers that prefer the Response name */
+export type RecommendationResponse = RecommendResponse
+
+// ---- Issue #75 aliases ----
+/** Alias for CurrentFeeResponse as specified in the shared lib layer issue */
+export type FeeStats = CurrentFeeResponse
+/** Alias for FeeHistoryResponse as specified in the shared lib layer issue */
+export type FeeHistory = FeeHistoryResponse

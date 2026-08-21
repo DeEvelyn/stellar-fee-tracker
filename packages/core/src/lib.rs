@@ -1,5 +1,5 @@
-// Library root — exposes internal modules for integration tests in `tests/`.
-// Production entry point remains `src/main.rs`.
+// Library root \u2014 exposes internal modules for integration tests in .
+// Production entry point remains .
 
 pub mod alerts;
 pub mod api;
@@ -8,6 +8,8 @@ pub mod db;
 pub mod error;
 pub mod insights;
 pub mod metrics;
+pub mod middleware;
+pub mod recommendation;
 pub mod repository;
 pub mod scheduler;
 pub mod services;
@@ -19,3 +21,4 @@ pub mod store;
 pub mod cli;
 pub mod config;
 pub mod logging;
+

@@ -32,9 +32,41 @@ pub struct TimestampedSpikeEvent {
 }
 
 /// Classifies fee spikes in a time series.
-pub struct SpikeClassifier;
+pub struct SpikeClassifier {
+    baseline: u64,
+}
+
+impl Default for SpikeClassifier {
+    fn default() -> Self {
+        Self { baseline: 200 }
+    }
+}
 
 impl SpikeClassifier {
+    /// Create a classifier with the given baseline.
+    pub fn new(baseline: u64) -> Self {
+        Self { baseline }
+    }
+
+    /// Classify a single fee using the configured baseline.
+    ///
+    /// Returns [`SpikeSeverity::Low`] for fees below the 2× spike threshold.
+    pub fn classify(&self, fee: u64) -> SpikeSeverity {
+        if self.baseline == 0 {
+            return SpikeSeverity::Low;
+        }
+        let ratio = fee as f64 / self.baseline as f64;
+        if ratio > 50.0 {
+            SpikeSeverity::Critical
+        } else if ratio >= 10.0 {
+            SpikeSeverity::High
+        } else if ratio >= 5.0 {
+            SpikeSeverity::Medium
+        } else {
+            SpikeSeverity::Low
+        }
+    }
+
     /// Returns indices of fees that fall outside 1.5 × IQR from Q1/Q3.
     /// `fees` need not be sorted; indices refer to the original slice.
     pub fn iqr_outliers(fees: &[u64]) -> Vec<usize> {
@@ -57,7 +89,7 @@ impl SpikeClassifier {
 
     /// Classify a single fee against a baseline.
     /// Returns `None` if the fee is below the 2× spike threshold.
-    pub fn classify(fee: u64, baseline: u64) -> Option<SpikeSeverity> {
+    pub fn classify_with_baseline(fee: u64, baseline: u64) -> Option<SpikeSeverity> {
         if baseline == 0 {
             return None;
         }
@@ -77,14 +109,14 @@ impl SpikeClassifier {
         let mut events = Vec::new();
         let mut i = 0;
         while i < fees.len() {
-            if let Some(severity) = Self::classify(fees[i], baseline) {
+            if let Some(severity) = Self::classify_with_baseline(fees[i], baseline) {
                 let start = i;
-                while i < fees.len() && Self::classify(fees[i], baseline).is_some() {
+                while i < fees.len() && Self::classify_with_baseline(fees[i], baseline).is_some() {
                     i += 1;
                 }
                 let severity = fees[start..i]
                     .iter()
-                    .filter_map(|&f| Self::classify(f, baseline))
+                    .filter_map(|&f| Self::classify_with_baseline(f, baseline))
                     .max_by_key(|s| match s {
                         SpikeSeverity::Low => 1,
                         SpikeSeverity::Medium => 2,

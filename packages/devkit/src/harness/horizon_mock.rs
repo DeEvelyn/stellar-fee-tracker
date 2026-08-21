@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 /// Mock implementation of the Horizon API server for use in tests.
 pub struct HorizonMock {
     /// Name of the currently active scenario.
@@ -12,6 +14,10 @@ pub struct HorizonMock {
     /// Optional canned JSON response for `GET /fee_stats`. When set, takes
     /// precedence over `scenario_path` and the convention-based file path.
     pub fee_stats_response: Option<String>,
+    /// Total number of requests served (incremented on each call to `record_request()`).
+    pub request_count: AtomicU64,
+    /// Unix timestamp when this mock was created (for uptime calculation).
+    pub start_time: u64,
 }
 
 impl HorizonMock {
@@ -22,6 +28,8 @@ impl HorizonMock {
             scenario_path: None,
             error_rate: 0.0,
             fee_stats_response: None,
+            request_count: AtomicU64::new(0),
+            start_time: current_unix_secs(),
         }
     }
 
@@ -50,6 +58,13 @@ impl HorizonMock {
         self
     }
 
+    /// Increments the request counter and logs the request.
+    /// Call once per incoming request.
+    pub fn record_request(&self, method: &str, path: &str) {
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+        self.log_request(method, path);
+    }
+
     /// Applies the configured delay, if any. Call before serving a response.
     pub fn apply_delay(&self) {
         if let Some(ms) = self.delay_ms {
@@ -69,18 +84,26 @@ impl HorizonMock {
         }
     }
 
-    /// Logs a request to stdout with timestamp, method, path, and active scenario name.
+    /// Logs a request: timestamp, method, path, scenario, response_time_ms.
     pub fn log_request(&self, method: &str, path: &str) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        println!("[{}] {} {} scenario={}", now, method, path, self.scenario);
+        println!(
+            "ts={} method={} path={} scenario={}",
+            now, method, path, self.scenario
+        );
     }
 
-    /// Returns the JSON body for `GET /health`.
+    /// Returns the JSON body for `GET /health`, including the total request count.
     pub fn health_payload(&self) -> String {
-        format!(r#"{{"status":"ok","scenario":"{}"}}"#, self.scenario)
+        let count = self.request_count.load(Ordering::Relaxed);
+        let uptime = current_unix_secs().saturating_sub(self.start_time);
+        format!(
+            r#"{{"status":"ok","scenario":"{}","request_count":{},"uptime_secs":{}}}"#,
+            self.scenario, count, uptime
+        )
     }
 
     /// Loads and returns the scenario JSON to be served at `GET /fee_stats`.
@@ -125,6 +148,10 @@ pub struct HorizonMockConfig {
     pub delay_ms: u64,
     /// Probability [0.0, 1.0] of injecting a 500 error response.
     pub error_rate: f64,
+    /// Interval in seconds between automatic scenario rotations (0 = disabled).
+    pub rotate_secs: u64,
+    /// Ordered list of scenario names to rotate through (used when rotate_secs > 0).
+    pub rotation_scenarios: Vec<String>,
 }
 
 impl Default for HorizonMockConfig {
@@ -134,6 +161,8 @@ impl Default for HorizonMockConfig {
             scenario_path: std::path::PathBuf::from("src/harness/scenarios/normal.json"),
             delay_ms: 0,
             error_rate: 0.0,
+            rotate_secs: 0,
+            rotation_scenarios: Vec::new(),
         }
     }
 }
@@ -156,6 +185,8 @@ impl HorizonMock {
             scenario_path: Some(config.scenario_path),
             error_rate: config.error_rate,
             fee_stats_response: None,
+            request_count: AtomicU64::new(0),
+            start_time: current_unix_secs(),
         }
     }
 }
@@ -164,7 +195,9 @@ impl HorizonMock {
 ///
 /// Routes:
 /// - `GET /fee_stats` — returns scenario fee stats JSON
-/// - `GET /health` — returns `{"status":"ok","scenario":"<name>"}`
+/// - `GET /health` — returns `{"status":"ok","scenario":"<name>","request_count":N}`
+/// - `GET /fee_stats` — returns scenario fee stats JSON, with optional delay and error injection
+/// - `GET /health` — returns `{"status":"ok","scenario":"<name>","uptime_secs":N}`
 ///
 /// Binds to `0.0.0.0:port`. Returns when the server shuts down.
 pub async fn serve(mock: std::sync::Arc<HorizonMock>, port: u16) -> std::io::Result<()> {
@@ -180,6 +213,15 @@ pub async fn serve(mock: std::sync::Arc<HorizonMock>, port: u16) -> std::io::Res
             get(move || {
                 let m = m1.clone();
                 async move {
+                    m.record_request("GET", "/fee_stats");
+                    m.apply_delay();
+                    if m.should_inject_error() {
+                        return (
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                            [(axum::http::header::CONTENT_TYPE, "application/json")],
+                            r#"{"error":"service unavailable"}"#.to_string(),
+                        );
+                    }
                     match m.fee_stats_payload() {
                         Ok(json) => (
                             axum::http::StatusCode::OK,
@@ -199,7 +241,10 @@ pub async fn serve(mock: std::sync::Arc<HorizonMock>, port: u16) -> std::io::Res
             "/health",
             get(move || {
                 let m = m2.clone();
-                async move { m.health_payload() }
+                async move {
+                    m.record_request("GET", "/health");
+                    m.health_payload()
+                }
             }),
         );
 
@@ -210,6 +255,14 @@ pub async fn serve(mock: std::sync::Arc<HorizonMock>, port: u16) -> std::io::Res
     axum::serve(listener, app)
         .await
         .map_err(std::io::Error::other)
+}
+
+/// Returns the current Unix timestamp in seconds.
+fn current_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 /// Minimal pseudo-random float in [0.0, 1.0) using system time as entropy.

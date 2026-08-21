@@ -1,0 +1,38 @@
+# Stellar Fee Tracker Devkit Configuration
+# ==========================================
+#
+# Copy this file to devkit.toml and customize as needed.
+# Environment variables override these values (prefix: DEVKIT_).
+
+# Database configuration
+db_path = "stellar_fees.db"
+
+# Scenario: normal, congested, spike, calm, stress
+scenario = "normal"
+
+# Mock server port
+port = 8090
+
+# Verbose output
+verbose = false
+
+# Horizon API base URL
+horizon_url = "https://horizon-testnet.stellar.org"
+
+# Polling interval in seconds (minimum recommended: 5s)
+poll_interval_secs = 10
+
+# Retry configuration
+retry_attempts = 3
+base_retry_delay_ms = 1000
+
+# Simulation settings
+simulation_duration = 1000
+simulation_base_fee = 100
+simulation_spike_prob = 0.05
+
+# Sandbox settings
+sandbox_time_offset_secs = 0
+
+# Analysis settings
+analysis_window_hours = 24

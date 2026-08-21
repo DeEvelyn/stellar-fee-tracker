@@ -1,8 +1,10 @@
-use crate::simulation::fee_model::{FeeModel, FeeModelConfig};
-use crate::types::FeeRecord;
+use crate::simulation::fee_model::{FeeModel, FeeModelConfig, FeePoint};
+
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 
 /// Returns a deterministic fee sequence of `count` records seeded by `seed`.
-pub fn make_fee_sequence(count: usize, seed: u64) -> Vec<FeeRecord> {
+pub fn make_fee_sequence(count: usize, seed: u64) -> Vec<FeePoint> {
     let config = FeeModelConfig {
         seed: Some(seed),
         ..Default::default()
@@ -11,7 +13,7 @@ pub fn make_fee_sequence(count: usize, seed: u64) -> Vec<FeeRecord> {
 }
 
 /// Returns a fee sequence where every record is flagged as a spike.
-pub fn make_spike_sequence(count: usize) -> Vec<FeeRecord> {
+pub fn make_spike_sequence(count: usize) -> Vec<FeePoint> {
     let config = FeeModelConfig {
         spike_probability: 1.0,
         seed: Some(0),
@@ -21,7 +23,7 @@ pub fn make_spike_sequence(count: usize) -> Vec<FeeRecord> {
 }
 
 /// Returns a fee sequence with no spikes (baseline load only).
-pub fn make_baseline_sequence(count: usize) -> Vec<FeeRecord> {
+pub fn make_baseline_sequence(count: usize) -> Vec<FeePoint> {
     let config = FeeModelConfig {
         spike_probability: 0.0,
         seed: Some(1),
@@ -29,10 +31,6 @@ pub fn make_baseline_sequence(count: usize) -> Vec<FeeRecord> {
     };
     FeeModel::new(config).generate(count, 0)
 }
-﻿//! Test helpers: deterministic fee sequence generator and SQLite fixture builder.
-
-use rand::{Rng, SeedableRng};
-use rand::rngs::SmallRng;
 
 /// Generates a deterministic fee sequence from a seed for repeatable tests.
 pub struct FeeGenerator {
@@ -42,12 +40,16 @@ pub struct FeeGenerator {
 impl FeeGenerator {
     /// Create a generator with the given seed.
     pub fn new(seed: u64) -> Self {
-        Self { rng: SmallRng::seed_from_u64(seed) }
+        Self {
+            rng: SmallRng::seed_from_u64(seed),
+        }
     }
 
     /// Generate `n` fee values in the range [min_fee, max_fee].
     pub fn generate(&mut self, n: usize, min_fee: u64, max_fee: u64) -> Vec<u64> {
-        (0..n).map(|_| self.rng.gen_range(min_fee..=max_fee)).collect()
+        (0..n)
+            .map(|_| self.rng.gen_range(min_fee..=max_fee))
+            .collect()
     }
 
     /// Generate a flat sequence of `n` identical fees (useful for baseline tests).
@@ -58,21 +60,21 @@ impl FeeGenerator {
 
 /// A simple in-memory fee record for fixture use.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FeeRecord {
+pub struct FixtureFeeRecord {
     pub timestamp: u64,
     pub fee_amount: u64,
     pub ledger_sequence: u64,
     pub tx_hash: String,
 }
 
-/// Builds a vec of FeeRecord fixtures for testing.
+/// Builds a vec of FixtureFeeRecord fixtures for testing.
 pub struct FixtureBuilder;
 
 impl FixtureBuilder {
     /// Build `n` sequential fee records starting at `base_timestamp`.
-    pub fn build(n: usize, base_timestamp: u64, base_fee: u64) -> Vec<FeeRecord> {
+    pub fn build(n: usize, base_timestamp: u64, base_fee: u64) -> Vec<FixtureFeeRecord> {
         (0..n)
-            .map(|i| FeeRecord {
+            .map(|i| FixtureFeeRecord {
                 timestamp: base_timestamp + i as u64,
                 fee_amount: base_fee,
                 ledger_sequence: 1000 + i as u64,
@@ -97,6 +99,9 @@ mod tests {
         let records = FixtureBuilder::build(3, 1000, 100);
         assert_eq!(records[0].timestamp, 1000);
         assert_eq!(records[2].timestamp, 1002);
+    }
+
+    #[test]
     fn same_seed_produces_same_sequence() {
         let a = FeeGenerator::new(42).generate(10, 100, 1000);
         let b = FeeGenerator::new(42).generate(10, 100, 1000);

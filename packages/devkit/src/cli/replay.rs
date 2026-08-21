@@ -8,6 +8,24 @@ pub struct ReplayArgs {
     pub db: PathBuf,
     /// Show a progress bar during replay.
     pub progress: bool,
+    /// Playback speed multiplier (1.0 = real-time).
+    pub speed: f32,
+    /// Start of the replay window (ISO-8601 timestamp).
+    pub from: Option<String>,
+    /// End of the replay window (ISO-8601 timestamp).
+    pub to: Option<String>,
+}
+
+impl Default for ReplayArgs {
+    fn default() -> Self {
+        Self {
+            db: PathBuf::from("stellar_fees.db"),
+            progress: false,
+            speed: 1.0,
+            from: None,
+            to: None,
+        }
+    }
 }
 
 impl ReplayArgs {
@@ -27,27 +45,10 @@ impl ReplayArgs {
             bar.inc(1);
         }
         bar.finish_with_message("replay complete");
-use clap::Args;
+    }
 
-/// Arguments for the `replay` subcommand.
-#[derive(Args)]
-pub struct ReplayArgs {
-    /// Path to the SQLite database file.
-    pub db: PathBuf,
-    /// Playback speed multiplier (1.0 = real-time).
-    #[arg(long, default_value = "1.0")]
-    pub speed: f32,
-    /// Start of the replay window (ISO-8601 timestamp).
-    #[arg(long)]
-    pub from: Option<String>,
-    /// End of the replay window (ISO-8601 timestamp).
-    #[arg(long)]
-    pub to: Option<String>,
-}
-
-impl ReplayArgs {
     /// Replays fee records filtered by the given time window.
-    pub fn run(&self) {
+    pub fn run_windowed(&self) {
         eprintln!(
             "Replaying from {} at {:.1}x speed, window {:?}..{:?}",
             self.db.display(),
@@ -55,26 +56,10 @@ impl ReplayArgs {
             self.from,
             self.to
         );
-    /// Path to the SQLite database file containing recorded fee data.
-    pub db: PathBuf,
-    /// Playback speed multiplier (1.0 = real-time, 10.0 = 10x faster).
-    #[arg(long, default_value = "1.0")]
-    pub speed: f32,
-}
+    }
 
-impl ReplayArgs {
-    /// Replays fee records at the specified speed multiplier.
-    pub fn run(&self) {
-        eprintln!(
-            "Replaying from {} at {:.1}x speed",
-            self.db.display(),
-            self.speed
-        );
-}
-
-impl ReplayArgs {
     /// Replays fee records from the database to stdout as a JSON stream.
-    pub fn run(&self) {
+    pub fn run_json(&self) {
         eprintln!("Replaying fee records from {}", self.db.display());
         println!("[]");
     }

@@ -27,33 +27,107 @@ Developer toolkit for the Stellar Fee Tracker. Provides utilities for testing, m
 
 ## Simulation
 
-The `simulation` module provides fee modelling and network-load generation without any live-network dependencies.
+The `simulation` module provides fee modelling, network-load generation, and congestion prediction without any live-network dependencies.
 
 ### `FeeModelConfig` fields
 
-| Field | Type | Description |
-|---|---|---|
-| `base_fee` | `u64` | Minimum fee (stroops) used as the simulation floor |
-| `surge_multiplier` | `f64` | Fee multiplier applied when the network is congested |
-| `congestion_threshold` | `f64` | Load ratio (0.0–1.0) above which surge pricing activates |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `base_fee` | `u64` | `100` | Base fee in stroops |
+| `spike_probability` | `f64` | `0.05` | Probability that any given ledger is a spike (0.0–1.0) |
+| `spike_multiplier` | `u64` | `10` | Multiplier applied to `base_fee` during a spike |
+| `ledger_interval_secs` | `u64` | `5` | Seconds between simulated ledgers |
+| `ledger_count` | `u64` | `100` | Number of ledgers to generate per `run()` call |
+| `seed` | `Option<u64>` | `None` | RNG seed for reproducible output |
+| `noise_factor` | `f64` | `0.0` | Gaussian noise stddev as a fraction of `base_fee` |
+
+### `NetworkLoadConfig` fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `min_tx` | `u64` | `10` | Minimum transactions per ledger |
+| `max_tx` | `u64` | `1000` | Maximum transactions per ledger |
+| `ledger_capacity` | `u64` | `1000` | Maximum tx capacity per ledger |
+| `ledger_interval_ms` | `u64` | `5000` | Time between ledger closes in ms |
+| `seed` | `Option<u64>` | `None` | RNG seed for reproducibility |
 
 ### Example usage
 
 ```rust
-use stellar_devkit::simulation::{FeeModel, NetworkLoad};
+use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig};
+use stellar_devkit::simulation::network_load::{NetworkLoad, NetworkLoadConfig};
+use stellar_devkit::simulation::congestion_predictor::{CongestionPredictor, CongestionInput, congestion_label};
 
-let load = NetworkLoad::constant(0.85);          // 85 % utilisation
-let result = FeeModel::run(&load, base_fee: 100, surge_multiplier: 2.0, congestion_threshold: 0.8);
-println!("recommended fee: {} stroops", result.recommended_fee);
+// Configure a fee scenario
+let fee_cfg = FeeModelConfig {
+    base_fee: 100,
+    spike_probability: 0.1,
+    spike_multiplier: 5,
+    seed: Some(42),
+    ..FeeModelConfig::default()
+};
+
+// Generate fee points
+let points = FeeModel::run(&fee_cfg);
+println!("Generated {} fee points", points.len());
+
+// Configure network load
+let load_cfg = NetworkLoadConfig {
+    min_tx: 50,
+    max_tx: 800,
+    ledger_capacity: 1000,
+    seed: Some(7),
+    ..NetworkLoadConfig::default()
+};
+let mut load = NetworkLoad::new(load_cfg);
+let ledgers = load.simulate(10);
+
+// Predict congestion
+let label = congestion_label(&CongestionInput {
+    recent_fee_window: 250.0,
+    capacity_usage: 0.75,
+    spike_count: 3,
+});
+println!("Congestion: {:?}", label);
 ```
 
-### Output format (`SimResult`)
+### Output format (`FeePoint`)
+
+Each `FeePoint` represents a single simulated ledger:
 
 | Field | Type | Description |
 |---|---|---|
-| `recommended_fee` | `u64` | Suggested fee for the simulated conditions |
-| `congested` | `bool` | Whether surge pricing was triggered |
-| `load_ratio` | `f64` | Network utilisation at simulation time |
+| `timestamp` | `u64` | Simulated Unix timestamp (seconds) |
+| `fee` | `u64` | Fee in stroops for this ledger |
+| `ledger` | `u64` | Ledger sequence number (1-based) |
+| `is_spike` | `bool` | Whether this ledger was a spike |
+
+### CSV export
+
+Fee points can be exported to CSV via the CLI:
+
+```bash
+cargo run --bin devkit -- export ./fees.db --output fees.csv
+```
+
+The CSV format matches the `FeePoint` shape:
+
+```
+timestamp,fee,ledger,is_spike
+1700000000,100,1,false
+1700000005,500,2,true
+1700000010,110,3,false
+```
+
+For programmatic export, serialise `FeePoint` slices directly:
+
+```rust
+use stellar_devkit::simulation::fee_model::{FeeModel, FeeModelConfig, FeeCurve};
+
+let points = FeeModel::run(&FeeModelConfig::default());
+let json = FeeCurve::fee_points_to_json(&points, 100)?;
+println!("{}", json);
+```
 
 ## Running
 
@@ -133,11 +207,345 @@ devkit benchmark --samples 1000
 devkit mock --port 8080 --scenario spike
 ```
 
+## CLI v2
+
+CLI v2 introduces a richer set of analysis and data-quality subcommands on top of the original replay/export/benchmark/mock/simulate set. All v2 subcommands follow the same invocation pattern:
+
+```bash
+devkit <SUBCOMMAND> [OPTIONS]
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `validate` | Run data-quality checks on a fee CSV or JSON file and print a quality report |
+| `repair` | Detect and fill gaps in a fee dataset; outputs the repaired records |
+| `compare` | Compare two fee datasets and report statistical differences |
+| `inspect` | Print a statistical summary (min, max, mean, spikes) for a fee dataset |
+| `convert` | Convert fee data between CSV and JSON formats |
+| `health` | Check the health of the devkit environment (config, paths, connectivity) |
+| `metrics` | Print summary analytics (trend, volatility, percentiles) for a fee file |
+| `completions` | Generate shell completion scripts for bash, zsh, fish, or PowerShell |
+| `version` | Print the devkit version and build metadata |
+| `config` | Show, validate, or reset the active devkit configuration |
+
+### `validate` — Data quality checks
+
+Validates a fee CSV or JSON file and outputs a quality report.
+
+```bash
+# Validate a CSV file (text report)
+devkit validate --file fees.csv --format csv
+
+# Validate a JSON file and emit a machine-readable JSON report
+devkit validate --file fees.json --format json --output-format json
+
+# Pipe data directly from another command
+cat fees.csv | devkit validate --format csv
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the fee data file |
+| `--format <fmt>` | `csv` | Input format: `csv` or `json` |
+| `--output-format <fmt>` | `text` | Report format: `text` or `json` |
+| `--quiet` | `false` | Suppress informational output; print only the final result |
+
+### `repair` — Gap detection and fill
+
+Detects missing ledgers or timestamp gaps and fills them with interpolated records.
+
+```bash
+# Repair a CSV file and write the result to a new file
+devkit repair --file fees.csv --output repaired.csv
+
+# Repair with a custom gap threshold (in seconds)
+devkit repair --file fees.csv --gap-threshold 30 --output repaired.csv
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the input fee CSV file |
+| `--output <PATH>` | `repaired.csv` | Path to write the repaired output |
+| `--gap-threshold <secs>` | `10` | Minimum gap size (seconds) to trigger interpolation |
+
+### `compare` — Dataset comparison
+
+Compares two fee datasets and prints statistical differences between them.
+
+```bash
+# Compare two CSV files
+devkit compare --baseline baseline.csv --candidate candidate.csv
+
+# Output the comparison as JSON
+devkit compare --baseline baseline.csv --candidate candidate.csv --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--baseline <PATH>` | — | Path to the baseline fee CSV file |
+| `--candidate <PATH>` | — | Path to the candidate fee CSV file |
+| `--output-format <fmt>` | `text` | Report format: `text` or `json` |
+
+### `inspect` — Fee data summary
+
+Prints a statistical overview of a fee dataset including count, min, max, mean, spike count, and percentiles.
+
+```bash
+# Inspect a CSV file
+devkit inspect --file fees.csv
+
+# Inspect a JSON file with JSON output
+devkit inspect --file fees.json --format json --output-format json
+
+# Pipe from another command
+cat fees.csv | devkit inspect
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the fee data file |
+| `--format <fmt>` | `csv` | Input format: `csv` or `json` |
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+
+### `convert` — Format conversion
+
+Converts fee data between CSV and JSON.
+
+```bash
+# CSV → JSON
+devkit convert --file fees.csv --from csv --to json --output fees.json
+
+# JSON → CSV
+devkit convert --file fees.json --from json --to csv --output fees.csv
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the input fee data file |
+| `--from <fmt>` | `csv` | Source format: `csv` or `json` |
+| `--to <fmt>` | `json` | Target format: `csv` or `json` |
+| `--output <PATH>` | — | Path to write the converted file |
+
+### `health` — Environment health check
+
+Checks the devkit environment: config validity, database accessibility, and Horizon reachability.
+
+```bash
+# Run all health checks
+devkit health
+
+# Output as JSON (e.g. for CI pipelines)
+devkit health --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+| `--config <PATH>` | `devkit.toml` | Path to the devkit configuration file |
+
+### `metrics` — Analytics summary
+
+Computes trend, volatility, and percentile analytics over a fee dataset and prints a summary.
+
+```bash
+# Print analytics for a CSV file
+devkit metrics --file fees.csv
+
+# JSON output for scripting
+devkit metrics --file fees.csv --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--file <PATH>` | — | Path to the fee data file |
+| `--format <fmt>` | `csv` | Input format: `csv` or `json` |
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+
+### `completions` — Shell completions
+
+Generates shell completion scripts for the devkit binary.
+
+```bash
+# Bash
+devkit completions --shell bash >> ~/.bash_completion
+
+# Zsh
+devkit completions --shell zsh > ~/.zfunc/_devkit
+
+# Fish
+devkit completions --shell fish > ~/.config/fish/completions/devkit.fish
+
+# PowerShell
+devkit completions --shell powershell >> $PROFILE
+```
+
+Options:
+
+| Flag | Required | Description |
+|---|---|---|
+| `--shell <SHELL>` | Yes | Target shell: `bash`, `zsh`, `fish`, or `powershell` |
+
+### `version` — Version information
+
+Prints the devkit version, build date, and Rust toolchain version.
+
+```bash
+devkit version
+
+# Machine-readable JSON
+devkit version --output-format json
+```
+
+Options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output-format <fmt>` | `text` | Output format: `text` or `json` |
+
+### `config` — Configuration management
+
+Shows the active configuration, validates it, or resets it to defaults.
+
+```bash
+# Show the active configuration (merged TOML + env)
+devkit config show
+
+# Validate the active configuration
+devkit config validate
+
+# Show the path to the active config file
+devkit config path
+
+# Reset to defaults (writes devkit.toml.example to devkit.toml)
+devkit config reset
+```
+
+Sub-subcommands:
+
+| Sub-command | Description |
+|---|---|
+| `show` | Print all resolved configuration values with their source (file / env / default) |
+| `validate` | Run the config validator and report any errors or warnings |
+| `path` | Print the path to the active configuration file |
+| `reset` | Write the default configuration to `devkit.toml` |
+
 ## Adding to Your Crate
 
 ```toml
 [dev-dependencies]
 stellar-devkit = { path = "../devkit" }
+```
+
+## Sandbox
+
+The `sandbox` module provides a scenario-driven testing DSL for simulating Stellar fee environments in isolation. It lets you compose network conditions, inject fixtures, and run assertions against simulated fee streams.
+
+### Scenarios
+
+Use `Scenario::builder()` to construct reproducible fee scenarios via a builder DSL:
+
+```rust
+use stellar_devkit::sandbox::Scenario;
+
+let scenario = Scenario::builder("my_test")
+    .with_base_fee(200)
+    .with_spike_probability(0.15)
+    .with_ledger_count(500)
+    .with_seed(42)
+    .build();
+```
+
+Each builder method configures a dimension of the simulation. The builder enforces valid ranges and returns errors for out-of-bound values. Once built, a `Scenario` is immutable and can be reused across multiple simulation runs.
+
+### Fixtures
+
+Pre-built fixture profiles capture common network states:
+
+| Fixture | Description |
+|---|---|
+| `Normal` | Low-fee baseline with minimal spikes; ideal for regression testing |
+| `Congested` | Sustained high-fee demand with elevated base fees |
+| `HighVariance` | Wide fee swings and frequent spikes; tests volatility handling |
+| `Recovery` | Starts congested and gradually returns to baseline; tests cooldown logic |
+| `Spike` | Mostly calm with a single sharp fee spike; tests spike detection |
+
+Load a fixture by name:
+
+```rust
+use stellar_devkit::sandbox::fixtures::{Fixture, load_fixture};
+
+let fixture = load_fixture(Fixture::Congested);
+let scenario = fixture.into_scenario();
+```
+
+### Runner
+
+The `Runner` executes a sandbox closure against a scenario, managing the simulation lifecycle:
+
+```rust
+use stellar_devkit::sandbox::{Scenario, Runner};
+
+let scenario = Scenario::builder("example")
+    .with_ledger_count(100)
+    .build();
+
+Runner::new(scenario).run(|ctx| {
+    // ctx provides access to generated fees, timestamps, and metadata
+    assert!(!ctx.fees().is_empty());
+    println!("Simulated {} ledgers", ctx.fees().len());
+});
+```
+
+The runner handles RNG seeding, timestamp generation, and fee model execution internally. The closure receives a `SandboxContext` with read access to all simulation outputs.
+
+### Assertion helpers
+
+The sandbox provides built-in assertion helpers for common test validations:
+
+```rust
+use stellar_devkit::sandbox::assertions::*;
+
+// Assert all fees fall within an expected range
+assert_fee_in_range(&fees, min_stroops, max_stroops);
+
+// Assert the number of spikes matches expectations
+assert_spike_count(&fees, expected_count);
+
+// Assert the quality score exceeds a threshold (0.0–1.0)
+assert_quality_score_above(&fees, 0.8);
+```
+
+### Time travel
+
+Control simulated time to test time-dependent logic:
+
+```rust
+use stellar_devkit::sandbox::time::*;
+
+// Advance the simulation clock by a duration
+advance_time(Duration::from_secs(3600));
+
+// Set the clock to an absolute timestamp
+set_time(1_700_000_000);
+
+// Read the current simulated time
+let now = current_time();
 ```
 
 ## Benchmarks
@@ -165,4 +573,108 @@ Benchmarks compile and run on every PR touching `packages/devkit/` via the [Devk
 ```toml
 [dev-dependencies]
 stellar-devkit = { path = "../devkit" }
+```
+
+## Fee Analytics
+
+The `analytics` module provides composable, zero-dependency fee analysis functions for trend detection, volatility measurement, correlation, forecasting, and regime change detection.
+
+### Modules
+
+| Sub-module | Key exports | Description |
+|---|---|---|
+| `analytics::trend` | `analyze_trend`, `fee_velocity`, `trend_strength_score` | Linear regression trend detection and rate-of-change measurement |
+| `analytics::volatility` | `compute_volatility`, `bollinger_bands`, `coefficient_of_variation` | Standard deviation, CV, and Bollinger Bands (SMA ± 2σ) |
+| `analytics::correlation` | `pearson_correlation`, `autocorrelation`, `cross_correlation` | Pearson correlation, lag-based autocorrelation, fee-capacity correlation |
+| `analytics::forecaster` | `forecast`, `forecast_linear`, `forecast_holt`, `confidence_intervals` | Linear extrapolation, Holt double-exponential smoothing, and CI bands |
+| `analytics::regime` | `detect_regime_change`, `ks_statistic` | KS-statistic regime shift detector (flags when KS > 0.3) |
+
+### Trend Detection
+
+```rust
+use stellar_devkit::analytics::trend::{analyze_trend, fee_velocity, trend_strength_score, TrendDirection};
+
+let fees: Vec<f64> = (0..100).map(|i| 100.0 + i as f64 * 5.0).collect();
+let trend = analyze_trend(&fees);
+assert_eq!(trend.direction, TrendDirection::Upward);
+println!("R²: {:.3}", trend.r_squared);            // ~1.0 for perfect line
+println!("Strength: {:.3}", trend_strength_score(&fees)); // same as r_squared
+
+// Rate of change in stroops/sec
+let timestamped: Vec<(u64, u64)> = (0..10)
+    .map(|i| (i as u64 * 1_000, 100 + i as u64 * 50))
+    .collect();
+let velocity = fee_velocity(&timestamped, 30);
+println!("Velocity: {:.1} stroops/sec", velocity);
+```
+
+### Volatility Measures
+
+```rust
+use stellar_devkit::analytics::volatility::{compute_volatility, bollinger_bands, coefficient_of_variation};
+
+let fees: Vec<f64> = (0..200).map(|i| 200.0 + (i as f64 * 0.3).sin() * 50.0).collect();
+
+let v = compute_volatility(&fees);
+println!("Std dev: {:.2}", v.standard_deviation);
+println!("CV:      {:.4}", v.coefficient_of_variation); // scale-invariant
+
+// Standalone CV function
+let cv = coefficient_of_variation(&fees);
+
+// Bollinger Bands with window=20
+let bands = bollinger_bands(&fees, 20);
+for b in &bands {
+    assert!(b.upper_band >= b.sma && b.sma >= b.lower_band);
+}
+```
+
+### Forecasting
+
+```rust
+use stellar_devkit::analytics::forecaster::{forecast_linear, forecast_holt, confidence_intervals};
+
+let fees: Vec<f64> = (0..50).map(|i| 100.0 + i as f64 * 3.0).collect();
+
+// Linear extrapolation
+let linear = forecast_linear(&fees, 10);
+
+// Holt's double exponential smoothing (alpha=0.3, beta=0.1)
+let holt = forecast_holt(&fees, 10, 0.3, 0.1);
+
+// 80% and 95% confidence intervals around the linear forecast
+let cis = confidence_intervals(&linear, /* residual_variance= */ 25.0);
+println!("Next step: {:.1} ± {:.1} (95%)", cis[0].predicted, cis[0].upper_95 - cis[0].predicted);
+```
+
+### Regime Change Detection
+
+```rust
+use stellar_devkit::analytics::regime::detect_regime_change;
+
+// Rolling 1-hour window vs 24-hour baseline
+let fees_1h: Vec<f64>  = vec![50_000.0; 100]; // sustained spike
+let fees_24h: Vec<f64> = (0..1000).map(|_| 200.0).collect(); // normal baseline
+
+if detect_regime_change(&fees_1h, &fees_24h) {
+    println!("Regime change detected — fee distribution has fundamentally shifted");
+}
+```
+
+### Correlation
+
+```rust
+use stellar_devkit::analytics::correlation::{pearson_correlation, autocorrelation, cross_correlation};
+
+let fees: Vec<f64>    = (0..100).map(|i| 100.0 + (i as f64 * 0.2).sin() * 50.0).collect();
+let capacity: Vec<f64> = (0..100).map(|i| 0.5 + (i as f64 * 0.2).sin() * 0.3).collect();
+
+// Fee-capacity cross-correlation
+let r = cross_correlation(&fees, &capacity);
+println!("Fee-capacity Pearson r: {:.3}", r.pearson_r);
+
+// Autocorrelation at lag 5
+let ac = autocorrelation(&fees, 5);
+println!("Autocorrelation at lag 5: {:.3}", ac);
+assert_eq!(autocorrelation(&fees, 0), 1.0); // lag=0 is always 1.0
 ```
