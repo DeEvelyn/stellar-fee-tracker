@@ -17,12 +17,14 @@ use tokio::sync::RwLock;
 use tokio::time;
 
 use crate::alerts::AlertManager;
+use crate::error::AppError;
 use crate::insights::error::ProviderError;
 use crate::insights::types::FeeDataPoint;
 use crate::insights::{FeeDataProvider, FeeInsightsEngine};
 use crate::metrics::AppMetrics;
 use crate::repository::FeeRepository;
-use crate::store::FeeHistoryStore;
+use crate::services::horizon::HorizonClient;
+use crate::store::{FeeHistoryStore, FeeStatsSnapshot};
 
 /// Full polling loop with configurable retry parameters and optional DB persistence.
 #[allow(clippy::too_many_arguments)]
@@ -223,6 +225,176 @@ pub async fn fetch_with_retry(
     None
 }
 
+// ---- /fee_stats polling (Issue #550) ----
+
+/// Polling loop driven by Horizon's `/fee_stats` endpoint.
+///
+/// Each tick fetches the full fee_stats payload, converts it to a
+/// [`FeeStatsSnapshot`] and persists it idempotently (one row per ledger,
+/// via `ON CONFLICT (ledger) DO UPDATE`). Snapshots older than the
+/// retention window are pruned. DB errors are logged, never fatal.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_fee_stats_polling(
+    client: Arc<HorizonClient>,
+    repository: Option<Arc<FeeRepository>>,
+    poll_interval_seconds: u64,
+    max_retry_attempts: u32,
+    base_retry_delay_ms: u64,
+    storage_retention_days: u64,
+    metrics: Option<Arc<AppMetrics>>,
+) {
+    let mut interval = time::interval(Duration::from_secs(poll_interval_seconds));
+
+    tracing::info!(
+        "Fee-stats polling started (interval: {}s, max retries: {}, retention: {}d)",
+        poll_interval_seconds,
+        max_retry_attempts,
+        storage_retention_days,
+    );
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                poll_fee_stats_once(
+                    &client,
+                    repository.as_deref(),
+                    max_retry_attempts,
+                    base_retry_delay_ms,
+                    storage_retention_days,
+                    metrics.as_deref(),
+                )
+                .await;
+            }
+
+            _ = signal::ctrl_c() => {
+                tracing::info!("Shutdown signal received. Stopping fee-stats polling.");
+                break;
+            }
+        }
+    }
+
+    tracing::info!("Fee-stats polling stopped cleanly");
+}
+
+/// Execute a single `/fee_stats` poll cycle with retry and idempotent persistence.
+async fn poll_fee_stats_once(
+    client: &HorizonClient,
+    repository: Option<&FeeRepository>,
+    max_retry_attempts: u32,
+    base_retry_delay_ms: u64,
+    storage_retention_days: u64,
+    metrics: Option<&AppMetrics>,
+) {
+    if let Some(m) = metrics {
+        m.polls_total.inc();
+    }
+
+    let snapshot = match fetch_fee_stats_with_retry(client, max_retry_attempts, base_retry_delay_ms)
+        .await
+    {
+        Some(s) => s,
+        None => {
+            if let Some(m) = metrics {
+                m.poll_errors_total.inc();
+            }
+            tracing::warn!(
+                "All {} retry attempts exhausted for fee_stats — skipping tick",
+                max_retry_attempts
+            );
+            return;
+        }
+    };
+
+    tracing::debug!(
+        "Fetched fee_stats for ledger {} (base fee: {} stroops)",
+        snapshot.ledger,
+        snapshot.base_fee
+    );
+
+    // Persist to DB — idempotent per ledger, non-fatal on error.
+    if let Some(repo) = repository {
+        match repo.upsert_fee_snapshot(&snapshot).await {
+            Ok(n) => {
+                tracing::debug!("Persisted fee snapshot for ledger {} ({} row)", snapshot.ledger, n);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to persist fee snapshot for ledger {}: {}",
+                    snapshot.ledger,
+                    err
+                );
+            }
+        }
+
+        let cutoff = Utc::now() - chrono::Duration::days(storage_retention_days as i64);
+        match repo.prune_fee_snapshots_older_than(cutoff).await {
+            Ok(n) if n > 0 => tracing::debug!("Pruned {} old fee snapshots from DB", n),
+            Ok(_) => {}
+            Err(err) => tracing::warn!("Failed to prune old fee snapshots: {}", err),
+        }
+    }
+}
+
+/// Attempt to fetch and convert a `/fee_stats` snapshot, retrying on
+/// network errors with exponential backoff + random jitter. Parse errors
+/// (including invalid numeric fields) are not retried — malformed data
+/// won't fix itself.
+///
+/// Returns `Some(snapshot)` on the first successful fetch, or `None` if
+/// all attempts are exhausted.
+pub async fn fetch_fee_stats_with_retry(
+    client: &HorizonClient,
+    max_attempts: u32,
+    base_delay_ms: u64,
+) -> Option<FeeStatsSnapshot> {
+    const MAX_DELAY_MS: u64 = 30_000;
+
+    for attempt in 0..max_attempts {
+        match client.fetch_fee_stats_full().await {
+            Ok(response) => match FeeStatsSnapshot::try_from(&response) {
+                Ok(snapshot) => {
+                    if attempt > 0 {
+                        tracing::info!(
+                            "fee_stats fetch succeeded after {} attempt(s)",
+                            attempt + 1
+                        );
+                    }
+                    return Some(snapshot);
+                }
+                Err(err) => {
+                    tracing::error!("Parse error converting fee_stats (not retrying): {}", err);
+                    return None;
+                }
+            },
+
+            Err(AppError::Parse(message)) => {
+                tracing::error!("Parse error fetching fee_stats (not retrying): {}", message);
+                return None;
+            }
+
+            Err(err) => {
+                let backoff_ms = {
+                    let exponential = base_delay_ms.saturating_mul(1u64 << attempt);
+                    let jitter = rand::random::<u64>() % base_delay_ms.max(1);
+                    exponential.saturating_add(jitter).min(MAX_DELAY_MS)
+                };
+
+                tracing::warn!(
+                    "fee_stats attempt {}/{} failed: {} — retrying in {}ms",
+                    attempt + 1,
+                    max_attempts,
+                    err,
+                    backoff_ms,
+                );
+
+                time::sleep(Duration::from_millis(backoff_ms)).await;
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,5 +545,163 @@ mod tests {
 
         assert!(result.is_some());
         assert_eq!(mock.calls(), 1);
+    }
+}
+
+#[cfg(test)]
+mod fee_stats_tests {
+    use super::*;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
+
+    use crate::db::create_pool;
+
+    fn fee_stats_body(base_fee: &str) -> serde_json::Value {
+        serde_json::json!({
+            "last_ledger": "50000001",
+            "last_ledger_base_fee": base_fee,
+            "ledger_capacity_usage": "0.97",
+            "fee_charged": {
+                "min": "100",
+                "max": "5000",
+                "mode": "213",
+                "mean": "250.75",
+                "median": "200",
+                "p10": "100",
+                "p20": "100",
+                "p30": "120",
+                "p40": "140",
+                "p50": "150",
+                "p60": "200",
+                "p70": "300",
+                "p80": "400",
+                "p90": "500",
+                "p95": "800",
+                "p99": "1200"
+            },
+            "max_fee": {
+                "min": "100",
+                "max": "10000",
+                "mode": "10000",
+                "mean": "9876.5",
+                "median": "10000"
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn fetch_fee_stats_with_retry_returns_snapshot_on_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/fee_stats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fee_stats_body("100")))
+            .mount(&server)
+            .await;
+
+        let client = HorizonClient::new(server.uri());
+        let snapshot = fetch_fee_stats_with_retry(&client, 3, 0)
+            .await
+            .expect("expected a snapshot");
+
+        assert_eq!(snapshot.ledger, 50_000_001);
+        assert_eq!(snapshot.base_fee, 100);
+        assert_eq!(snapshot.mode_fee_charged, 213);
+        assert!((snapshot.mean_fee_charged - 250.75).abs() < f64::EPSILON);
+        assert_eq!(snapshot.p95_fee_charged, 800);
+        assert_eq!(snapshot.max_fee, 10_000);
+        assert!((snapshot.ledger_capacity_usage.unwrap() - 0.97).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn fetch_fee_stats_with_retry_exhausts_attempts_on_http_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/fee_stats"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(3)
+            .mount(&server)
+            .await;
+
+        let client = HorizonClient::new(server.uri());
+        let result = fetch_fee_stats_with_retry(&client, 3, 0).await;
+
+        assert!(result.is_none(), "all attempts exhausted should yield None");
+    }
+
+    #[tokio::test]
+    async fn fetch_fee_stats_with_retry_does_not_retry_parse_errors() {
+        let server = MockServer::start().await;
+        let mut bad_body = fee_stats_body("100");
+        bad_body["last_ledger"] = serde_json::json!("not-a-number");
+        // Scoped guard verifies exactly one request was made — any retry
+        // would push the call count past the expectation and panic on drop.
+        let _guard = Mock::given(method("GET"))
+            .and(path("/fee_stats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(bad_body))
+            .expect(1)
+            .mount_as_scoped(&server)
+            .await;
+
+        let client = HorizonClient::new(server.uri());
+        let result = fetch_fee_stats_with_retry(&client, 3, 0).await;
+
+        assert!(result.is_none(), "parse errors must not be retried");
+    }
+
+    #[tokio::test]
+    async fn poll_fee_stats_once_persists_snapshots_idempotently() {
+        let server = MockServer::start().await;
+        // First tick serves base fee 100; second tick serves base fee 200
+        // for the SAME ledger — the upsert must update, not duplicate.
+        Mock::given(method("GET"))
+            .and(path("/fee_stats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fee_stats_body("200")))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/fee_stats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fee_stats_body("100")))
+            .with_priority(1)
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        let pool = create_pool("sqlite::memory:").await.unwrap();
+        let repo = FeeRepository::new(pool);
+
+        let client = Arc::new(HorizonClient::new(server.uri()));
+        poll_fee_stats_once(&client, Some(&repo), 3, 0, 7, None).await;
+        poll_fee_stats_once(&client, Some(&repo), 3, 0, 7, None).await;
+
+        let snapshots = repo
+            .fetch_fee_snapshots_since(Utc::now() - chrono::Duration::hours(1))
+            .await
+            .unwrap();
+        assert_eq!(
+            snapshots.len(),
+            1,
+            "same ledger must not produce duplicate rows"
+        );
+        assert_eq!(snapshots[0].ledger, 50_000_001);
+        assert_eq!(
+            snapshots[0].base_fee, 200,
+            "second poll should have updated the row"
+        );
+    }
+
+    #[tokio::test]
+    async fn poll_fee_stats_once_without_repository_does_not_panic() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/fee_stats"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(fee_stats_body("100")))
+            .mount(&server)
+            .await;
+
+        let client = HorizonClient::new(server.uri());
+        poll_fee_stats_once(&client, None, 3, 0, 7, None).await;
     }
 }
