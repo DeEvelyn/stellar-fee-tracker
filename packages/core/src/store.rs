@@ -78,6 +78,14 @@ impl FeeHistoryStore {
     pub fn clear(&mut self) {
         self.data.clear();
     }
+
+    /// Find a data point by transaction hash.
+    pub fn get_by_hash(&self, hash: &str) -> Option<FeeDataPoint> {
+        self.data
+            .iter()
+            .find(|p| p.transaction_hash == hash)
+            .cloned()
+    }
 }
 
 /// A point-in-time snapshot of Horizon's `/fee_stats` aggregate data
@@ -103,13 +111,19 @@ pub struct FeeStatsSnapshot {
 
 fn parse_u64_field(raw: &str, field: &str) -> Result<u64, AppError> {
     raw.trim().parse::<u64>().map_err(|_| {
-        AppError::Parse(format!("Invalid {} in fee_stats response: '{}'", field, raw))
+        AppError::Parse(format!(
+            "Invalid {} in fee_stats response: '{}'",
+            field, raw
+        ))
     })
 }
 
 fn parse_f64_field(raw: &str, field: &str) -> Result<f64, AppError> {
     raw.trim().parse::<f64>().map_err(|_| {
-        AppError::Parse(format!("Invalid {} in fee_stats response: '{}'", field, raw))
+        AppError::Parse(format!(
+            "Invalid {} in fee_stats response: '{}'",
+            field, raw
+        ))
     })
 }
 
@@ -127,10 +141,7 @@ impl TryFrom<&FeeStatsResponse> for FeeStatsSnapshot {
 
         Ok(Self {
             ledger: parse_u64_field(&response.last_ledger, "last_ledger")?,
-            base_fee: parse_u64_field(
-                &response.last_ledger_base_fee,
-                "last_ledger_base_fee",
-            )?,
+            base_fee: parse_u64_field(&response.last_ledger_base_fee, "last_ledger_base_fee")?,
             min_fee_charged: parse_u64_field(&fee.min, "fee_charged.min")?,
             max_fee_charged: parse_u64_field(&fee.max, "fee_charged.max")?,
             mode_fee_charged: parse_u64_field(&fee.mode, "fee_charged.mode")?,
@@ -325,8 +336,7 @@ mod tests {
 
     #[test]
     fn fee_stats_snapshot_converts_from_response() {
-        let response: FeeStatsResponse =
-            serde_json::from_str(&fee_stats_response_json()).unwrap();
+        let response: FeeStatsResponse = serde_json::from_str(&fee_stats_response_json()).unwrap();
         let snapshot = FeeStatsSnapshot::try_from(&response).unwrap();
 
         assert_eq!(snapshot.ledger, 50_000_001);

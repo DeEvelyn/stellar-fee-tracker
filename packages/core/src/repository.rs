@@ -632,9 +632,7 @@ impl FeeRepository {
             .into_iter()
             .filter_map(|row| {
                 use sqlx::Row;
-                row.try_get::<i64, _>("fee_amount")
-                    .map(|v| v as u64)
-                    .ok()
+                row.try_get::<i64, _>("fee_amount").map(|v| v as u64).ok()
             })
             .collect();
 
@@ -1113,8 +1111,12 @@ mod fee_stats_snapshot_tests {
     async fn upsert_fee_snapshot_keeps_distinct_ledgers_separate() {
         let repo = make_repo().await;
 
-        repo.upsert_fee_snapshot(&make_snapshot(1, 100, 213)).await.unwrap();
-        repo.upsert_fee_snapshot(&make_snapshot(2, 100, 256)).await.unwrap();
+        repo.upsert_fee_snapshot(&make_snapshot(1, 100, 213))
+            .await
+            .unwrap();
+        repo.upsert_fee_snapshot(&make_snapshot(2, 100, 256))
+            .await
+            .unwrap();
 
         let snapshots = repo
             .fetch_fee_snapshots_since(Utc::now() - Duration::hours(1))

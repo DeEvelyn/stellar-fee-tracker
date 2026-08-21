@@ -263,4 +263,3 @@ mod integration_tests {
         assert!(body.contains("stellar_fee_tracker_polls_total 5"));
     }
 }
-

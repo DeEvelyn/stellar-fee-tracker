@@ -31,7 +31,10 @@ impl FeeRecommendationEngine {
         }
     }
 
-    pub async fn recommend(&self, request: &RecommendRequest) -> Result<RecommendResponse, AppError> {
+    pub async fn recommend(
+        &self,
+        request: &RecommendRequest,
+    ) -> Result<RecommendResponse, AppError> {
         let target_ledgers = request
             .target_ledgers
             .unwrap_or(DEFAULT_TARGET_LEDGERS)
@@ -55,7 +58,8 @@ impl FeeRecommendationEngine {
         }
 
         let fee_store = self.fee_store.read().await;
-        let recent_points: Vec<FeeDataPoint> = fee_store.get_since(Utc::now() - chrono::Duration::hours(1));
+        let recent_points: Vec<FeeDataPoint> =
+            fee_store.get_since(Utc::now() - chrono::Duration::hours(1));
 
         if recent_points.is_empty() {
             return self.fallback_recommendation(target_ledgers, &urgency).await;
@@ -71,10 +75,7 @@ impl FeeRecommendationEngine {
         let (percentile, _label) = urgency_percentile(&urgency);
         let base_fee = percentile_value(&sorted, percentile);
 
-        let max_fee = request
-            .max_fee
-            .as_ref()
-            .and_then(|s| s.parse::<u64>().ok());
+        let max_fee = request.max_fee.as_ref().and_then(|s| s.parse::<u64>().ok());
 
         let adjusted = self.network_condition_adjustment(base_fee).await;
 
@@ -242,10 +243,7 @@ impl FeeRecommendationEngine {
         }
     }
 
-    async fn generate_alternatives(
-        &self,
-        sorted_fees: &[u64],
-    ) -> Vec<FeeAlternative> {
+    async fn generate_alternatives(&self, sorted_fees: &[u64]) -> Vec<FeeAlternative> {
         let tiers = [
             ("economy", 0.70, 5u8),
             ("standard", 0.90, 2u8),
@@ -308,12 +306,7 @@ fn percentile_value(sorted: &[u64], percentile: usize) -> u64 {
     sorted[rank - 1]
 }
 
-fn find_fee_for_target_ledgers(
-    fees: &[u64],
-    target_ledgers: u32,
-    p50: u64,
-    p99: u64,
-) -> u64 {
+fn find_fee_for_target_ledgers(fees: &[u64], target_ledgers: u32, p50: u64, p99: u64) -> u64 {
     if fees.is_empty() {
         return 100;
     }
@@ -463,4 +456,3 @@ mod tests {
         assert_eq!(result.alternatives.len(), 2);
     }
 }
-

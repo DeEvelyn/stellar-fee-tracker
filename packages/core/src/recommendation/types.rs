@@ -72,4 +72,3 @@ pub struct RecommendHistoryResponse {
 
 pub type RecommendationRequest = RecommendRequest;
 pub type RecommendationResponse = RecommendResponse;
-

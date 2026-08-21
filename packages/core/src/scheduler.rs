@@ -289,21 +289,20 @@ async fn poll_fee_stats_once(
         m.polls_total.inc();
     }
 
-    let snapshot = match fetch_fee_stats_with_retry(client, max_retry_attempts, base_retry_delay_ms)
-        .await
-    {
-        Some(s) => s,
-        None => {
-            if let Some(m) = metrics {
-                m.poll_errors_total.inc();
+    let snapshot =
+        match fetch_fee_stats_with_retry(client, max_retry_attempts, base_retry_delay_ms).await {
+            Some(s) => s,
+            None => {
+                if let Some(m) = metrics {
+                    m.poll_errors_total.inc();
+                }
+                tracing::warn!(
+                    "All {} retry attempts exhausted for fee_stats — skipping tick",
+                    max_retry_attempts
+                );
+                return;
             }
-            tracing::warn!(
-                "All {} retry attempts exhausted for fee_stats — skipping tick",
-                max_retry_attempts
-            );
-            return;
-        }
-    };
+        };
 
     tracing::debug!(
         "Fetched fee_stats for ledger {} (base fee: {} stroops)",
@@ -315,7 +314,11 @@ async fn poll_fee_stats_once(
     if let Some(repo) = repository {
         match repo.upsert_fee_snapshot(&snapshot).await {
             Ok(n) => {
-                tracing::debug!("Persisted fee snapshot for ledger {} ({} row)", snapshot.ledger, n);
+                tracing::debug!(
+                    "Persisted fee snapshot for ledger {} ({} row)",
+                    snapshot.ledger,
+                    n
+                );
             }
             Err(err) => {
                 tracing::warn!(

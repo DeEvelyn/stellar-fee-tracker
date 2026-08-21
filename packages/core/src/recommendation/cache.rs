@@ -112,7 +112,10 @@ mod tests {
     fn invalidate_all_clears_entries() {
         let mut cache = RecommendationCache::new(10);
         cache.set(make_key(), make_response());
-        cache.set((1, "fast".to_string(), "rising".to_string()), make_response());
+        cache.set(
+            (1, "fast".to_string(), "rising".to_string()),
+            make_response(),
+        );
         cache.invalidate_all();
         assert!(cache.get(&make_key()).is_none());
     }

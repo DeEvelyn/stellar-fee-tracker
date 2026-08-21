@@ -27,6 +27,63 @@ impl HorizonClient {
     pub(crate) fn http_client(&self) -> &Client {
         &self.http
     }
+
+    pub async fn fetch_account_transactions(
+        &self,
+        account_id: &str,
+        limit: u32,
+    ) -> Result<Vec<crate::insights::types::FeeDataPoint>, AppError> {
+        let url = format!(
+            "{}/accounts/{}/transactions?limit={}&order=desc",
+            self.base_url, account_id, limit
+        );
+        let response = self
+            .http
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::Network(format!("Failed to fetch account transactions: {}", e))
+            })?;
+
+        if !response.status().is_success() {
+            return Err(AppError::Network(format!(
+                "Horizon returned HTTP {}",
+                response.status()
+            )));
+        }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::Parse(format!("Failed to parse account transactions: {}", e)))?;
+
+        let records = body["_embedded"]["records"]
+            .as_array()
+            .ok_or_else(|| AppError::Parse("Missing _embedded.records in response".to_string()))?;
+
+        let points: Vec<crate::insights::types::FeeDataPoint> = records
+            .iter()
+            .filter_map(|r| {
+                let hash = r["hash"].as_str()?.to_string();
+                let fee_charged = r["fee_charged"].as_str()?.parse::<u64>().ok()?;
+                let ledger = r["ledger"].as_str()?.parse::<u64>().ok()?;
+                let created_at = r["created_at"].as_str()?.to_string();
+                let successful = r["successful"].as_bool()?;
+                Some(crate::insights::types::FeeDataPoint {
+                    fee_amount: fee_charged,
+                    timestamp: chrono::DateTime::parse_from_rfc3339(&created_at)
+                        .ok()?
+                        .with_timezone(&chrono::Utc),
+                    transaction_hash: hash,
+                    ledger_sequence: ledger,
+                })
+            })
+            .collect();
+
+        Ok(points)
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -55,7 +55,10 @@ fn test_privileged_port_produces_warning() {
     let mut config = valid_config();
     config.port = 80;
     let result = ConfigValidator::validate(&config);
-    assert!(result.is_valid(), "Privileged port should be valid with warning");
+    assert!(
+        result.is_valid(),
+        "Privileged port should be valid with warning"
+    );
     let warnings = result.warnings();
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].field, "port");
@@ -120,9 +123,7 @@ fn test_horizon_url_with_spaces_produces_error() {
     assert!(!result.is_valid());
     let errors = result.errors();
     assert!(errors.iter().any(|e| e.field == "horizon_url"));
-    assert!(errors
-        .iter()
-        .any(|e| e.message.contains("contains spaces")));
+    assert!(errors.iter().any(|e| e.message.contains("contains spaces")));
 }
 
 #[test]
@@ -327,10 +328,10 @@ fn test_large_analysis_window_produces_warning() {
     let result = ConfigValidator::validate(&config);
     assert!(result.is_valid());
     let warnings = result.warnings();
+    assert!(warnings.iter().any(|w| w.field == "analysis_window_hours"));
     assert!(warnings
         .iter()
-        .any(|w| w.field == "analysis_window_hours"));
-    assert!(warnings.iter().any(|w| w.message.contains("exceeds 7 days")));
+        .any(|w| w.message.contains("exceeds 7 days")));
 }
 
 #[test]
