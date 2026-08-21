@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RecommendationConfig {
     pub default_confidence: f64,
@@ -70,6 +71,7 @@ pub struct RecommendHistoryResponse {
     pub entries: Vec<RecommendHistoryEntry>,
 }
 
+#[allow(dead_code)]
 pub type RecommendationRequest = RecommendRequest;
+#[allow(dead_code)]
 pub type RecommendationResponse = RecommendResponse;
-

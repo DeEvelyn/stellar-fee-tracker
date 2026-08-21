@@ -42,6 +42,7 @@ pub struct AlertEvent {
 }
 
 /// A persisted recommendation row.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recommendation {
     pub id: Option<i64>,
@@ -438,6 +439,7 @@ impl FeeRepository {
     // ---- Recommendations ----
 
     /// Persist a recommendation row. Returns the new row id.
+    #[allow(dead_code)]
     pub async fn insert_recommendation(&self, rec: &Recommendation) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             "INSERT INTO recommendations
@@ -461,6 +463,7 @@ impl FeeRepository {
     }
 
     /// Return fee amounts from `fee_data_points` with timestamp >= `since`, sorted ascending.
+    #[allow(dead_code)]
     pub async fn get_fees_since(&self, since: DateTime<Utc>) -> Result<Vec<u64>, sqlx::Error> {
         let since_str = since.to_rfc3339();
 
@@ -475,9 +478,7 @@ impl FeeRepository {
             .into_iter()
             .filter_map(|row| {
                 use sqlx::Row;
-                row.try_get::<i64, _>("fee_amount")
-                    .map(|v| v as u64)
-                    .ok()
+                row.try_get::<i64, _>("fee_amount").map(|v| v as u64).ok()
             })
             .collect();
 
@@ -485,6 +486,7 @@ impl FeeRepository {
     }
 
     /// Query the most recent `limit` recommendation rows, newest first.
+    #[allow(dead_code)]
     pub async fn query_recent_recommendations(
         &self,
         limit: i64,

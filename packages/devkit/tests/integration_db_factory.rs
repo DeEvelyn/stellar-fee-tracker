@@ -1,6 +1,3 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-
 #[test]
 fn test_db_factory_creates_sqlite_database() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");

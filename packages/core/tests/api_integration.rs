@@ -164,6 +164,7 @@ async fn build_test_app() -> (Router, MockServer) {
             fee_cache,
             fee_store: fee_store.clone(),
             insights_engine: Some(insights_engine.clone()),
+            horizon_client: None,
         }));
 
     // ---- Full router (mirrors main.rs assembly) ----

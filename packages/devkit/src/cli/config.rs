@@ -145,6 +145,7 @@ impl Config {
 }
 
 /// Arguments for the `config` subcommand.
+#[derive(Default)]
 pub struct ConfigArgs {
     /// Optional path to a configuration file.
     pub config_file: Option<PathBuf>,
@@ -152,16 +153,6 @@ pub struct ConfigArgs {
     pub show: bool,
     /// Set a configuration key=value pair (may be specified multiple times).
     pub set: Vec<String>,
-}
-
-impl Default for ConfigArgs {
-    fn default() -> Self {
-        Self {
-            config_file: None,
-            show: false,
-            set: Vec::new(),
-        }
-    }
 }
 
 impl ConfigArgs {

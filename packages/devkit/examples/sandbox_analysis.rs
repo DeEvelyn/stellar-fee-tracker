@@ -5,7 +5,6 @@
 
 use stellar_devkit::analysis::percentile::{fee_distribution_summary, percentile_nearest_rank};
 use stellar_devkit::analysis::spike_classifier::SpikeClassifier;
-use stellar_devkit::sandbox::environment::SandboxEnv;
 use stellar_devkit::sandbox::fixtures::congested_network;
 
 fn main() {
