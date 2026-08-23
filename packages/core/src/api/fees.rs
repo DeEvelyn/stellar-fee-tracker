@@ -413,9 +413,10 @@ pub async fn account_fee_history(
     State(state): State<FeesState>,
     axum::extract::Path(account_id): axum::extract::Path<String>,
 ) -> Result<Json<AccountFeeHistoryResponse>, AppError> {
-    let horizon = state.horizon_client.as_ref().ok_or_else(|| {
-        AppError::Config("Horizon client missing from fees state".to_string())
-    })?;
+    let horizon = state
+        .horizon_client
+        .as_ref()
+        .ok_or_else(|| AppError::Config("Horizon client missing from fees state".to_string()))?;
 
     let records = horizon.fetch_account_transactions(&account_id, 100).await?;
 
@@ -451,6 +452,9 @@ pub async fn account_fee_history(
         max_fee,
         transactions,
     }))
+}
+
+#[derive(Debug, Serialize)]
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
     pub fee_amount: u64,
@@ -474,10 +478,7 @@ pub async fn transaction_fee_lookup(
             ledger_sequence: p.ledger_sequence,
             timestamp: p.timestamp,
         })),
-        None => Err(AppError::Parse(format!(
-            "Transaction not found: {}",
-            hash
-        ))),
+        None => Err(AppError::Parse(format!("Transaction not found: {}", hash))),
     }
 }
 
