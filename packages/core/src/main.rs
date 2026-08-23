@@ -133,10 +133,18 @@ async fn main() {
     let horizon_provider = Arc::new(HorizonFeeDataProvider::new((*horizon_client).clone()));
     let fee_stats_provider: Arc<dyn api::fees::FeeStatsProvider + Send + Sync> =
         horizon_client.clone();
-    let alert_manager = Arc::new(AlertManager::new(
+    // Issue #556: use new_with_config so the configured alert types /
+    // staleness threshold actually drive AlertManager, rather than
+    // silently falling back to the "all four types, 300s" defaults that
+    // AlertManager::new (kept only for backward compatibility) applies.
+    let enabled_alert_types: std::collections::HashSet<String> =
+        config.enabled_alert_types.iter().cloned().collect();
+    let alert_manager = Arc::new(AlertManager::new_with_config(
         config.webhook_url.clone(),
         config.alert_threshold.clone(),
         config.stellar_network.as_str().to_string(),
+        enabled_alert_types,
+        config.stale_data_threshold_seconds,
     ));
     let rate_limit_state = Arc::new(RateLimitState::new(config.rate_limit_per_minute));
 
@@ -197,6 +205,8 @@ async fn main() {
         .route(
             "/fees/account/:account_id",
             get(api::fees::account_fee_history),
+        )
+        .route(
             "/fees/transaction/:hash",
             get(api::fees::transaction_fee_lookup),
         )
@@ -209,10 +219,8 @@ async fn main() {
         }));
 
     // Business routes that require optional API-key auth.
-    let recommendation_engine = FeeRecommendationEngine::new(
-        fee_store.clone(),
-        Some(insights_engine.clone()),
-    );
+    let recommendation_engine =
+        FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()));
     let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
         engine: recommendation_engine,
         metrics: Some(app_metrics.clone()),
@@ -355,4 +363,3 @@ async fn main() {
 
     tracing::info!("Application shut down cleanly");
 }
-

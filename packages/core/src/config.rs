@@ -3,6 +3,7 @@ use std::env;
 use crate::cli::Cli;
 use crate::insights::SpikeSeverity;
 use crate::recommendation::types::RecommendationConfig;
+use crate::repository::VALID_ALERT_TYPES;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -21,6 +22,15 @@ pub struct Config {
     pub database_url: String,
     pub storage_retention_days: u64,
     pub recommendation: RecommendationConfig,
+    /// Which alert types (from `VALID_ALERT_TYPES`) `AlertManager` will
+    /// evaluate each poll tick. Defaults to all four — spike alerting
+    /// keeps working exactly as before, and the new Advisor alert types
+    /// (Issue #556) are opt-out rather than opt-in.
+    pub enabled_alert_types: Vec<String>,
+    /// How stale `DataQuality.freshness` must get (in seconds) before a
+    /// `stale_data` alert fires. Only consulted when `stale_data` is in
+    /// `enabled_alert_types`.
+    pub stale_data_threshold_seconds: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +142,28 @@ impl Config {
             .transpose()?
             .unwrap_or(SpikeSeverity::Major);
 
+        let enabled_alert_types = match get("ENABLED_ALERT_TYPES") {
+            Some(raw) => {
+                let parsed: Vec<String> = raw
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                for alert_type in &parsed {
+                    if !VALID_ALERT_TYPES.contains(&alert_type.as_str()) {
+                        return Err(format!("Invalid ENABLED_ALERT_TYPES entry: {}", alert_type));
+                    }
+                }
+                parsed
+            }
+            None => VALID_ALERT_TYPES.iter().map(|s| s.to_string()).collect(),
+        };
+
+        let stale_data_threshold_seconds = get("STALE_DATA_THRESHOLD_SECONDS")
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(300);
+
         // -------- Allowed Origins --------
         let allowed_origins = get("ALLOWED_ORIGINS")
             .unwrap_or_else(|| "http://localhost:3000".to_string())
@@ -193,6 +225,8 @@ impl Config {
             database_url,
             storage_retention_days,
             recommendation,
+            enabled_alert_types,
+            stale_data_threshold_seconds,
         })
     }
 }
@@ -417,5 +451,61 @@ mod tests {
             config.allowed_origins,
             vec!["http://localhost:3000", "https://app.example.com"]
         );
+    }
+
+    // ---- enabled_alert_types / stale_data_threshold_seconds (Issue #556) ----
+
+    #[test]
+    fn enabled_alert_types_defaults_to_all_four() {
+        let cli = make_cli("testnet", None);
+        let config = Config::from_sources_with_overrides(&cli, &no_env()).unwrap();
+        let mut types = config.enabled_alert_types.clone();
+        types.sort();
+        assert_eq!(
+            types,
+            vec!["good_window", "recovery", "spike", "stale_data"]
+        );
+    }
+
+    #[test]
+    fn enabled_alert_types_parses_env_subset() {
+        let cli = make_cli("testnet", None);
+        let env = HashMap::from([("ENABLED_ALERT_TYPES", "spike,stale_data")]);
+        let config = Config::from_sources_with_overrides(&cli, &env).unwrap();
+        assert_eq!(config.enabled_alert_types, vec!["spike", "stale_data"]);
+    }
+
+    #[test]
+    fn enabled_alert_types_rejects_invalid_entry() {
+        let cli = make_cli("testnet", None);
+        let env = HashMap::from([("ENABLED_ALERT_TYPES", "spike,made_up_type")]);
+        let result = Config::from_sources_with_overrides(&cli, &env);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid ENABLED_ALERT_TYPES entry"));
+    }
+
+    #[test]
+    fn stale_data_threshold_defaults_to_300_seconds() {
+        let cli = make_cli("testnet", None);
+        let config = Config::from_sources_with_overrides(&cli, &no_env()).unwrap();
+        assert_eq!(config.stale_data_threshold_seconds, 300);
+    }
+
+    #[test]
+    fn stale_data_threshold_uses_env_override() {
+        let cli = make_cli("testnet", None);
+        let env = HashMap::from([("STALE_DATA_THRESHOLD_SECONDS", "600")]);
+        let config = Config::from_sources_with_overrides(&cli, &env).unwrap();
+        assert_eq!(config.stale_data_threshold_seconds, 600);
+    }
+
+    #[test]
+    fn stale_data_threshold_zero_falls_back_to_default() {
+        let cli = make_cli("testnet", None);
+        let env = HashMap::from([("STALE_DATA_THRESHOLD_SECONDS", "0")]);
+        let config = Config::from_sources_with_overrides(&cli, &env).unwrap();
+        assert_eq!(config.stale_data_threshold_seconds, 300);
     }
 }

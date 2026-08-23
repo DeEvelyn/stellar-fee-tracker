@@ -319,9 +319,71 @@ curl http://localhost:8080/insights/health
 
 ---
 
+Alert configs and events carry an `alert_type` of `spike`, `recovery`,
+`good_window`, or `stale_data` (Issue #556). `spike` fires when a fee
+spike crosses the configured `threshold`; `recovery` fires when an
+active spike condition clears, correlated back to the spike it resolves
+via `correlation_id`; `good_window` fires when congestion is declining
+(a good time to submit); `stale_data` fires when the poll pipeline's
+data freshness exceeds the configured staleness threshold. All four
+share the same webhook delivery mechanism (SSRF-guarded HTTPS-only
+URLs, retry-once on non-2xx). The webhook payload's `event` field
+identifies which kind fired (`fee_spike_detected`,
+`fee_spike_recovered`, `good_submission_window`, `data_pipeline_stale`);
+fields that don't apply to a given type (e.g. `peak_fee` for a
+`good_window` event) are omitted from the JSON body entirely rather than
+sent as `null`.
+
+## `POST /alerts/config`
+
+Registers a new alert webhook target. Each call creates a new,
+independent config row — it does not replace or merge with existing
+ones.
+
+**Request body**
+
+```json
+{
+  "webhook_url": "https://hooks.slack.com/services/xxx",
+  "threshold": "Major",
+  "alert_type": "spike"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `webhook_url` | `string` | Yes | HTTPS URL with a public hostname (SSRF-guarded: loopback/private/link-local hosts are rejected) |
+| `threshold` | `string` | No | Alert severity: `Minor`, `Moderate`, `Major`, `Critical` (default `Major`). Only meaningful for `spike`/`recovery` alert types |
+| `alert_type` | `string` | No | `spike`, `recovery`, `good_window`, or `stale_data` (default `spike`) |
+
+**Request**
+
+```bash
+curl -X POST http://localhost:8080/alerts/config \
+  -H "Content-Type: application/json" \
+  -d '{"webhook_url": "https://hooks.slack.com/services/xxx", "threshold": "Moderate", "alert_type": "stale_data"}'
+```
+
+**Response** — `201 Created`
+
+```json
+{ "id": 1 }
+```
+
+**Error responses**
+
+| Status | Body | Cause |
+|---|---|---|
+| `400 Bad Request` | `{"error": "Invalid threshold '<value>'. Must be one of: ..."}` | Unrecognised threshold value |
+| `400 Bad Request` | `{"error": "Invalid alert_type '<value>'. Must be one of: ..."}` | Unrecognised alert_type value |
+| `400 Bad Request` | `{"error": "Invalid webhook_url: must be an HTTPS URL with a public hostname"}` | URL is not HTTPS, or resolves to a private/loopback/link-local host |
+
+---
+
 ## `GET /alerts/config`
 
-Returns the current alert configuration.
+Lists every registered alert webhook config, including disabled
+(soft-deleted) ones.
 
 **Request**
 
@@ -332,71 +394,79 @@ curl http://localhost:8080/alerts/config
 **Response** — `200 OK`
 
 ```json
-{
-  "id": 1,
-  "threshold": "Major",
-  "webhook_url": "https://hooks.slack.com/services/xxx",
-  "enabled": true,
-  "created_at": "2024-01-15T08:00:00Z",
-  "updated_at": "2024-01-15T10:00:00Z"
-}
+[
+  {
+    "id": 1,
+    "webhook_url": "https://hooks.slack.com/services/xxx",
+    "threshold": "Major",
+    "alert_type": "spike",
+    "enabled": true,
+    "created_at": "2024-01-15T08:00:00Z"
+  }
+]
 ```
-
-**Error responses**
-
-| Status | Body | Cause |
-|---|---|---|
-| `404 Not Found` | `{"error": "no alert config found"}` | No configuration has been created yet |
 
 ---
 
-## `POST /alerts/config`
+## `PATCH /alerts/config/:id`
 
-Creates or updates the alert configuration.
+Partially updates a config. Any field omitted from the request body
+keeps its current value.
 
 **Request body**
 
 ```json
 {
-  "threshold": "Major",
-  "webhook_url": "https://hooks.slack.com/services/xxx",
-  "enabled": true
+  "threshold": "Critical",
+  "enabled": false,
+  "alert_type": "good_window"
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `threshold` | `string` | Yes | Alert severity: `Minor`, `Moderate`, `Major`, `Critical` |
-| `webhook_url` | `string` | No | Webhook URL for alerts; omit or set `null` to disable |
-| `enabled` | `bool` | No | Whether alerts are active (default `true`) |
+| `threshold` | `string` | No | New severity threshold |
+| `enabled` | `bool` | No | New enabled state |
+| `alert_type` | `string` | No | New alert type: `spike`, `recovery`, `good_window`, or `stale_data` |
 
 **Request**
 
 ```bash
-curl -X POST http://localhost:8080/alerts/config \
+curl -X PATCH http://localhost:8080/alerts/config/1 \
   -H "Content-Type: application/json" \
-  -d '{"threshold": "Moderate", "webhook_url": "https://hooks.slack.com/services/xxx", "enabled": true}'
+  -d '{"enabled": false}'
 ```
 
-**Response** — `200 OK`
-
-```json
-{
-  "id": 1,
-  "threshold": "Moderate",
-  "webhook_url": "https://hooks.slack.com/services/xxx",
-  "enabled": true,
-  "created_at": "2024-01-15T08:00:00Z",
-  "updated_at": "2024-01-15T10:30:00Z"
-}
-```
+**Response** — `204 No Content`
 
 **Error responses**
 
 | Status | Body | Cause |
 |---|---|---|
-| `400 Bad Request` | `{"error": "invalid threshold"}` | Unrecognised threshold value |
-| `422 Unprocessable Entity` | `{"error": "<field> is required"}` | Missing required field |
+| `400 Bad Request` | `{"error": "Invalid threshold '<value>'. Must be one of: ..."}` | Unrecognised threshold value |
+| `400 Bad Request` | `{"error": "Invalid alert_type '<value>'. Must be one of: ..."}` | Unrecognised alert_type value |
+| `404 Not Found` | `{"error": "Alert config not found"}` | No config with that id |
+
+---
+
+## `DELETE /alerts/config/:id`
+
+Soft-deletes a config by setting `enabled` to `false`. The row still
+appears in `GET /alerts/config`.
+
+**Request**
+
+```bash
+curl -X DELETE http://localhost:8080/alerts/config/1
+```
+
+**Response** — `204 No Content`
+
+**Error responses**
+
+| Status | Body | Cause |
+|---|---|---|
+| `404 Not Found` | `{"error": "Alert config not found"}` | No config with that id |
 
 ---
 
@@ -408,34 +478,51 @@ Returns a paginated list of triggered alert events.
 
 | Name | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `limit` | `u32` | No | `50` | Number of events to return (max `500`) |
-| `offset` | `u32` | No | `0` | Number of events to skip |
+| `limit` | `i64` | No | `20` | Number of events to return (clamped to `100`) |
+| `severity` | `string` | No | — | Filter by severity: `Minor`, `Moderate`, `Major`, `Critical` |
+| `delivered` | `bool` | No | — | Filter by webhook delivery success |
+| `alert_type` | `string` | No | — | Filter by `spike`, `recovery`, `good_window`, or `stale_data` |
 
 **Request**
 
 ```bash
-curl "http://localhost:8080/alerts/history?limit=10"
+curl "http://localhost:8080/alerts/history?limit=10&alert_type=stale_data"
 ```
 
 **Response** — `200 OK`
 
 ```json
 {
-  "events": [
+  "total": 1,
+  "items": [
     {
       "id": 42,
+      "config_id": 1,
+      "alert_type": "stale_data",
       "severity": "Major",
-      "fee_at_trigger": 8500,
-      "threshold_value": 5000,
+      "peak_fee": 0,
+      "baseline_fee": 0.0,
+      "spike_ratio": 0.0,
+      "webhook_url": "https://hooks.slack.com/services/xxx",
+      "delivered": true,
       "triggered_at": "2024-01-15T09:15:00Z",
-      "webhook_delivered": true
+      "correlation_id": null
     }
-  ],
-  "total": 1,
-  "limit": 50,
-  "offset": 0
+  ]
 }
 ```
+
+`peak_fee`, `baseline_fee`, and `spike_ratio` only carry meaningful
+values for `spike` events; they default to `0`/`0.0` for the other
+three alert types. `correlation_id` is set only on `recovery` events,
+identifying the spike they resolve.
+
+**Error responses**
+
+| Status | Body | Cause |
+|---|---|---|
+| `400 Bad Request` | `{"error": "Invalid severity '<value>'. Must be one of: ..."}` | Unrecognised severity value |
+| `400 Bad Request` | `{"error": "Invalid alert_type '<value>'. Must be one of: ..."}` | Unrecognised alert_type value |
 
 ---
 
