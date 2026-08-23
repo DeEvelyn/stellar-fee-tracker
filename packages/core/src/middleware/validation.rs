@@ -6,7 +6,9 @@ use crate::recommendation::types::{RecommendRequest, Urgency};
 const MAX_FEE_UPPER_BOUND: u64 = 100_000_000;
 const MAX_TARGET_LEDGERS: u32 = 100;
 
-pub fn validate_recommend_request(req: &RecommendRequest) -> Result<(), (StatusCode, serde_json::Value)> {
+pub fn validate_recommend_request(
+    req: &RecommendRequest,
+) -> Result<(), (StatusCode, serde_json::Value)> {
     if let Some(ledgers) = req.target_ledgers {
         if ledgers == 0 || ledgers > MAX_TARGET_LEDGERS {
             return Err((
@@ -22,7 +24,10 @@ pub fn validate_recommend_request(req: &RecommendRequest) -> Result<(), (StatusC
     }
 
     if let Some(ref urgency) = req.urgency {
-        let valid = matches!(urgency, Urgency::Low | Urgency::Medium | Urgency::High | Urgency::Urgent);
+        let valid = matches!(
+            urgency,
+            Urgency::Low | Urgency::Medium | Urgency::High | Urgency::Urgent
+        );
         if !valid {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -131,4 +136,3 @@ mod tests {
         assert!(validate_recommend_request(&req).is_err());
     }
 }
-
