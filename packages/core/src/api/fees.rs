@@ -427,19 +427,19 @@ pub async fn account_fee_history(
         )));
     }
 
-    let total_fees: u64 = records.iter().map(|r| r.fee_charged).sum();
-    let min_fee = records.iter().map(|r| r.fee_charged).min().unwrap_or(0);
-    let max_fee = records.iter().map(|r| r.fee_charged).max().unwrap_or(0);
+    let total_fees: u64 = records.iter().map(|r| r.fee_amount).sum();
+    let min_fee = records.iter().map(|r| r.fee_amount).min().unwrap_or(0);
+    let max_fee = records.iter().map(|r| r.fee_amount).max().unwrap_or(0);
     let avg_fee = total_fees as f64 / records.len() as f64;
 
     let transactions: Vec<AccountTransactionEntry> = records
         .iter()
         .map(|r| AccountTransactionEntry {
-            hash: r.hash.clone(),
-            fee_charged: r.fee_charged,
-            ledger: r.ledger,
-            created_at: r.created_at.clone(),
-            successful: r.successful,
+            hash: r.transaction_hash.clone(),
+            fee_charged: r.fee_amount,
+            ledger: r.ledger_sequence,
+            created_at: r.timestamp.to_rfc3339(),
+            successful: true,
         })
         .collect();
 
@@ -455,6 +455,7 @@ pub async fn account_fee_history(
 }
 
 #[derive(Debug, Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
     pub fee_amount: u64,

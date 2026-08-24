@@ -34,6 +34,7 @@ pub async fn recommend(
     State(state): State<RecommendationState>,
     Json(body): Json<RecommendRequest>,
 ) -> Result<Json<RecommendResponse>, AppError> {
+    validate_recommend_request(&body).map_err(|(status, err_json)| {
     validate_recommend_request(&body).map_err(|(_status, err_json)| {
         AppError::Parse(
             err_json["error"]
@@ -64,6 +65,47 @@ pub async fn get_recommend(
     };
 
     let result = state.engine.recommend(&request).await?;
+    let recent = state.engine.get_last_n_fees(100).await;
+
+    if recent.is_empty() {
+        return Err(AppError::Network(
+            "No fee data available yet. Wait for the first poll cycle.".to_string(),
+        ));
+    }
+
+    let mut sorted: Vec<u64> = recent.iter().map(|p| p.fee_amount).collect();
+    sorted.sort_unstable();
+
+    let base_fee = sorted[0];
+    let sum: u64 = sorted.iter().sum();
+    let avg_fee = sum / sorted.len() as u64;
+
+    let ratio = avg_fee as f64 / base_fee as f64;
+
+    let percentile_value = |sorted: &[u64], pct: usize| -> u64 {
+        let idx = (pct * sorted.len()).div_ceil(100).min(sorted.len() - 1);
+        sorted[idx]
+    };
+
+    let (congestion, basis, recommended_fee) = if ratio < 1.5 {
+        (
+            "LOW".to_string(),
+            "p20".to_string(),
+            percentile_value(&sorted, 20),
+        )
+    } else if ratio <= 3.0 {
+        (
+            "MEDIUM".to_string(),
+            "p50".to_string(),
+            percentile_value(&sorted, 50),
+        )
+    } else {
+        (
+            "HIGH".to_string(),
+            "p70".to_string(),
+            percentile_value(&sorted, 70),
+        )
+    };
 
     if let Some(metrics) = &state.metrics {
         metrics.recommendations_total.inc();
@@ -109,4 +151,6 @@ pub async fn recommend_history(
     };
 
     Ok(Json(RecommendHistoryResponse { entries }))
+    let response = RecommendHistoryResponse { entries: vec![] };
+    Ok(Json(response))
 }
