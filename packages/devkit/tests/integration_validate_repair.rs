@@ -8,8 +8,8 @@ fn test_validate_then_repair_pipeline() {
         .filter(|&i| i != 50)
         .map(|i| FeePoint {
             timestamp: 1700000000000 + i * 6000,
-            fee: 100 + (i as u64 % 50),
-            ledger: (i + 1) as u64,
+            fee: 100 + (i % 50),
+            ledger: (i + 1),
             is_spike: false,
         })
         .collect();

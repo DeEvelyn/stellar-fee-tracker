@@ -41,7 +41,6 @@ async fn half_open_to_closed_after_successes() {
         failure_threshold: 1,
         success_threshold: 2,
         open_duration: Duration::from_millis(10),
-        ..Default::default()
     });
     cb.record_failure().await;
     tokio::time::sleep(Duration::from_millis(20)).await;

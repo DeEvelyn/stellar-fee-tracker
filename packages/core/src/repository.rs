@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::insights::types::FeeDataPoint;
+use crate::store::FeeStatsSnapshot;
 
 /// Valid threshold values for alert configurations.
 /// Must match the `SpikeSeverity` enum variants used by the insights engine.
@@ -56,6 +57,7 @@ pub struct AlertEvent {
 }
 
 /// A persisted recommendation row.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Recommendation {
     pub id: Option<i64>,
@@ -183,6 +185,165 @@ impl FeeRepository {
         let cutoff_str = cutoff.to_rfc3339();
 
         let result = sqlx::query("DELETE FROM fee_data_points WHERE timestamp < ?")
+            .bind(&cutoff_str)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    // ---- Fee stats snapshots (Issue #550) ----
+
+    /// Idempotently persist a `/fee_stats` snapshot.
+    ///
+    /// `fee_stats_snapshots.ledger` is the primary key, so re-polling the
+    /// same ledger updates the existing row (`ON CONFLICT (ledger) DO
+    /// UPDATE`) instead of inserting a duplicate. Returns the number of
+    /// rows written (always 1 on success).
+    #[allow(dead_code)]
+    pub async fn upsert_fee_snapshot(
+        &self,
+        snapshot: &FeeStatsSnapshot,
+    ) -> Result<u64, sqlx::Error> {
+        let captured_at = snapshot.timestamp.to_rfc3339();
+
+        let result = sqlx::query(
+            "INSERT INTO fee_stats_snapshots (
+                ledger, base_fee, min_fee_charged, max_fee_charged, mode_fee_charged,
+                mean_fee_charged, median_fee_charged, p10_fee_charged, p95_fee_charged,
+                p99_fee_charged, max_fee, ledger_capacity_usage, captured_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (ledger) DO UPDATE SET
+                base_fee = excluded.base_fee,
+                min_fee_charged = excluded.min_fee_charged,
+                max_fee_charged = excluded.max_fee_charged,
+                mode_fee_charged = excluded.mode_fee_charged,
+                mean_fee_charged = excluded.mean_fee_charged,
+                median_fee_charged = excluded.median_fee_charged,
+                p10_fee_charged = excluded.p10_fee_charged,
+                p95_fee_charged = excluded.p95_fee_charged,
+                p99_fee_charged = excluded.p99_fee_charged,
+                max_fee = excluded.max_fee,
+                ledger_capacity_usage = excluded.ledger_capacity_usage,
+                captured_at = excluded.captured_at",
+        )
+        .bind(snapshot.ledger as i64)
+        .bind(snapshot.base_fee as i64)
+        .bind(snapshot.min_fee_charged as i64)
+        .bind(snapshot.max_fee_charged as i64)
+        .bind(snapshot.mode_fee_charged as i64)
+        .bind(snapshot.mean_fee_charged)
+        .bind(snapshot.median_fee_charged as i64)
+        .bind(snapshot.p10_fee_charged as i64)
+        .bind(snapshot.p95_fee_charged as i64)
+        .bind(snapshot.p99_fee_charged as i64)
+        .bind(snapshot.max_fee as i64)
+        .bind(snapshot.ledger_capacity_usage)
+        .bind(&captured_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Fetch all fee stats snapshots with captured_at >= `since`,
+    /// ordered by ledger ascending.
+    #[allow(dead_code)]
+    pub async fn fetch_fee_snapshots_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<FeeStatsSnapshot>, sqlx::Error> {
+        let since_str = since.to_rfc3339();
+
+        let rows = sqlx::query(
+            "SELECT ledger, base_fee, min_fee_charged, max_fee_charged, mode_fee_charged,
+                    mean_fee_charged, median_fee_charged, p10_fee_charged, p95_fee_charged,
+                    p99_fee_charged, max_fee, ledger_capacity_usage, captured_at
+             FROM fee_stats_snapshots
+             WHERE captured_at >= ?
+             ORDER BY ledger ASC",
+        )
+        .bind(&since_str)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let snapshots = rows
+            .into_iter()
+            .filter_map(|row| {
+                use sqlx::Row;
+                macro_rules! col {
+                    ($col:literal, $T:ty) => {
+                        match row.try_get::<$T, _>($col) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::error!(
+                                    "fee_stats_snapshots row decode error (column {}): {}",
+                                    $col,
+                                    e
+                                );
+                                return None;
+                            }
+                        }
+                    };
+                }
+
+                let ledger: i64 = col!("ledger", i64);
+                let base_fee: i64 = col!("base_fee", i64);
+                let min_fee_charged: i64 = col!("min_fee_charged", i64);
+                let max_fee_charged: i64 = col!("max_fee_charged", i64);
+                let mode_fee_charged: i64 = col!("mode_fee_charged", i64);
+                let mean_fee_charged: f64 = col!("mean_fee_charged", f64);
+                let median_fee_charged: i64 = col!("median_fee_charged", i64);
+                let p10_fee_charged: i64 = col!("p10_fee_charged", i64);
+                let p95_fee_charged: i64 = col!("p95_fee_charged", i64);
+                let p99_fee_charged: i64 = col!("p99_fee_charged", i64);
+                let max_fee: i64 = col!("max_fee", i64);
+                let ledger_capacity_usage: Option<f64> = col!("ledger_capacity_usage", Option<f64>);
+                let captured_at: String = col!("captured_at", String);
+
+                let timestamp = match DateTime::parse_from_rfc3339(&captured_at) {
+                    Ok(ts) => ts.with_timezone(&Utc),
+                    Err(e) => {
+                        tracing::error!(
+                            "fee_stats_snapshots row: invalid timestamp '{}': {}",
+                            captured_at,
+                            e
+                        );
+                        return None;
+                    }
+                };
+
+                Some(FeeStatsSnapshot {
+                    ledger: ledger as u64,
+                    base_fee: base_fee as u64,
+                    min_fee_charged: min_fee_charged as u64,
+                    max_fee_charged: max_fee_charged as u64,
+                    mode_fee_charged: mode_fee_charged as u64,
+                    mean_fee_charged,
+                    median_fee_charged: median_fee_charged as u64,
+                    p10_fee_charged: p10_fee_charged as u64,
+                    p95_fee_charged: p95_fee_charged as u64,
+                    p99_fee_charged: p99_fee_charged as u64,
+                    max_fee: max_fee as u64,
+                    ledger_capacity_usage,
+                    timestamp,
+                })
+            })
+            .collect();
+
+        Ok(snapshots)
+    }
+
+    /// Delete all fee_stats_snapshots captured before `cutoff`.
+    /// Returns the number of rows deleted.
+    #[allow(dead_code)]
+    pub async fn prune_fee_snapshots_older_than(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> Result<u64, sqlx::Error> {
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let result = sqlx::query("DELETE FROM fee_stats_snapshots WHERE captured_at < ?")
             .bind(&cutoff_str)
             .execute(&self.pool)
             .await?;
@@ -646,6 +807,7 @@ impl FeeRepository {
     // ---- Recommendations ----
 
     /// Persist a recommendation row. Returns the new row id.
+    #[allow(dead_code)]
     pub async fn insert_recommendation(&self, rec: &Recommendation) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             "INSERT INTO recommendations
@@ -669,6 +831,7 @@ impl FeeRepository {
     }
 
     /// Return fee amounts from `fee_data_points` with timestamp >= `since`, sorted ascending.
+    #[allow(dead_code)]
     pub async fn get_fees_since(&self, since: DateTime<Utc>) -> Result<Vec<u64>, sqlx::Error> {
         let since_str = since.to_rfc3339();
 
@@ -691,6 +854,7 @@ impl FeeRepository {
     }
 
     /// Query the most recent `limit` recommendation rows, newest first.
+    #[allow(dead_code)]
     pub async fn query_recent_recommendations(
         &self,
         limit: i64,
@@ -1131,5 +1295,112 @@ mod alert_event_tests {
         let events = repo.query_alert_history(1, None, None).await.unwrap();
         assert!(events[0].id.is_some());
         assert!(events[0].id.unwrap() > 0);
+    }
+}
+
+#[cfg(test)]
+mod fee_stats_snapshot_tests {
+    use super::*;
+    use chrono::Duration;
+
+    use crate::db::create_pool;
+
+    async fn make_repo() -> FeeRepository {
+        let pool = create_pool("sqlite::memory:").await.unwrap();
+        FeeRepository::new(pool)
+    }
+
+    fn make_snapshot(ledger: u64, base_fee: u64, mode_fee: u64) -> FeeStatsSnapshot {
+        FeeStatsSnapshot {
+            ledger,
+            base_fee,
+            min_fee_charged: 100,
+            max_fee_charged: 5000,
+            mode_fee_charged: mode_fee,
+            mean_fee_charged: 250.75,
+            median_fee_charged: 200,
+            p10_fee_charged: 100,
+            p95_fee_charged: 800,
+            p99_fee_charged: 1200,
+            max_fee: 10_000,
+            ledger_capacity_usage: Some(0.97),
+            timestamp: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn upsert_fee_snapshot_inserts_then_updates_same_ledger() {
+        let repo = make_repo().await;
+
+        repo.upsert_fee_snapshot(&make_snapshot(50_000_001, 100, 213))
+            .await
+            .unwrap();
+        // Same ledger again — must UPDATE, not duplicate.
+        repo.upsert_fee_snapshot(&make_snapshot(50_000_001, 200, 300))
+            .await
+            .unwrap();
+
+        use sqlx::Row;
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS cnt, MAX(base_fee) AS base_fee, MAX(mode_fee_charged) AS mode_fee
+             FROM fee_stats_snapshots WHERE ledger = ?",
+        )
+        .bind(50_000_001i64)
+        .fetch_one(&repo.pool)
+        .await
+        .unwrap();
+
+        assert_eq!(row.try_get::<i64, _>("cnt").unwrap(), 1);
+        assert_eq!(row.try_get::<i64, _>("base_fee").unwrap(), 200);
+        assert_eq!(row.try_get::<i64, _>("mode_fee").unwrap(), 300);
+    }
+
+    #[tokio::test]
+    async fn upsert_fee_snapshot_keeps_distinct_ledgers_separate() {
+        let repo = make_repo().await;
+
+        repo.upsert_fee_snapshot(&make_snapshot(1, 100, 213))
+            .await
+            .unwrap();
+        repo.upsert_fee_snapshot(&make_snapshot(2, 100, 256))
+            .await
+            .unwrap();
+
+        let snapshots = repo
+            .fetch_fee_snapshots_since(Utc::now() - Duration::hours(1))
+            .await
+            .unwrap();
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(snapshots[0].ledger, 1);
+        assert_eq!(snapshots[0].mode_fee_charged, 213);
+        assert_eq!(snapshots[1].ledger, 2);
+        assert_eq!(snapshots[1].mode_fee_charged, 256);
+        assert!((snapshots[0].mean_fee_charged - 250.75).abs() < f64::EPSILON);
+        assert!((snapshots[0].ledger_capacity_usage.unwrap() - 0.97).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn prune_fee_snapshots_older_than_removes_only_old_rows() {
+        let repo = make_repo().await;
+
+        let mut old = make_snapshot(1, 100, 213);
+        old.timestamp = Utc::now() - Duration::hours(2);
+        let fresh = make_snapshot(2, 100, 256);
+
+        repo.upsert_fee_snapshot(&old).await.unwrap();
+        repo.upsert_fee_snapshot(&fresh).await.unwrap();
+
+        let deleted = repo
+            .prune_fee_snapshots_older_than(Utc::now() - Duration::hours(1))
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+
+        let remaining = repo
+            .fetch_fee_snapshots_since(Utc::now() - Duration::days(1))
+            .await
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].ledger, 2);
     }
 }

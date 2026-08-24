@@ -68,9 +68,9 @@ pub fn forecast_holt(fees: &[f64], horizon: usize, alpha: f64, beta: f64) -> Vec
     let mut level = fees[0];
     let mut trend = fees[1] - fees[0];
 
-    for i in 1..fees.len() {
+    for fee in fees.iter().skip(1) {
         let prev_level = level;
-        level = alpha * fees[i] + (1.0 - alpha) * (level + trend);
+        level = alpha * fee + (1.0 - alpha) * (level + trend);
         trend = beta * (level - prev_level) + (1.0 - beta) * trend;
     }
 

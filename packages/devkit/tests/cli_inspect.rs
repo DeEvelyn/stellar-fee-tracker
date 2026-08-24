@@ -174,11 +174,11 @@ fn inspect_above_threshold_filter() {
 fn inspect_top3_are_largest() {
     let pts = known_dataset();
     let mut sorted = pts.clone();
-    sorted.sort_by(|a, b| b.fee.cmp(&a.fee));
+    sorted.sort_by_key(|item| std::cmp::Reverse(item.fee));
     let top3_expected: Vec<u64> = sorted.iter().take(3).map(|p| p.fee).collect();
 
     let mut top3_actual = pts.clone();
-    top3_actual.sort_by(|a, b| b.fee.cmp(&a.fee));
+    top3_actual.sort_by_key(|item| std::cmp::Reverse(item.fee));
     let top3_actual: Vec<u64> = top3_actual.iter().take(3).map(|p| p.fee).collect();
 
     assert_eq!(top3_actual, top3_expected, "top-3 fees must be the largest");

@@ -12,8 +12,11 @@
 use std::collections::VecDeque;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
+use crate::error::AppError;
 use crate::insights::types::FeeDataPoint;
+use crate::services::horizon::FeeStatsResponse;
 
 /// Default maximum number of data points retained in memory.
 pub const DEFAULT_CAPACITY: usize = 10_000;
@@ -59,14 +62,6 @@ impl FeeHistoryStore {
         self.data.iter().skip(skip).cloned().collect()
     }
 
-    /// Return the first data point matching the given transaction hash, if any.
-    pub fn get_by_hash(&self, hash: &str) -> Option<FeeDataPoint> {
-        self.data
-            .iter()
-            .find(|p| p.transaction_hash == hash)
-            .cloned()
-    }
-
     /// Number of data points currently held.
     pub fn len(&self) -> usize {
         self.data.len()
@@ -82,6 +77,86 @@ impl FeeHistoryStore {
     #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.data.clear();
+    }
+
+    /// Find a data point by transaction hash.
+    pub fn get_by_hash(&self, hash: &str) -> Option<FeeDataPoint> {
+        self.data
+            .iter()
+            .find(|p| p.transaction_hash == hash)
+            .cloned()
+    }
+}
+
+/// A point-in-time snapshot of Horizon's `/fee_stats` aggregate data
+/// (Issue #550). One snapshot corresponds to exactly one ledger, which
+/// makes persistence idempotent: re-polling the same ledger updates the
+/// existing row instead of duplicating it.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeStatsSnapshot {
+    pub ledger: u64,
+    pub base_fee: u64,
+    pub min_fee_charged: u64,
+    pub max_fee_charged: u64,
+    pub mode_fee_charged: u64,
+    pub mean_fee_charged: f64,
+    pub median_fee_charged: u64,
+    pub p10_fee_charged: u64,
+    pub p95_fee_charged: u64,
+    pub p99_fee_charged: u64,
+    pub max_fee: u64,
+    pub ledger_capacity_usage: Option<f64>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+#[allow(dead_code)]
+fn parse_u64_field(raw: &str, field: &str) -> Result<u64, AppError> {
+    raw.trim().parse::<u64>().map_err(|_| {
+        AppError::Parse(format!(
+            "Invalid {} in fee_stats response: '{}'",
+            field, raw
+        ))
+    })
+}
+
+#[allow(dead_code)]
+fn parse_f64_field(raw: &str, field: &str) -> Result<f64, AppError> {
+    raw.trim().parse::<f64>().map_err(|_| {
+        AppError::Parse(format!(
+            "Invalid {} in fee_stats response: '{}'",
+            field, raw
+        ))
+    })
+}
+
+impl TryFrom<&FeeStatsResponse> for FeeStatsSnapshot {
+    type Error = AppError;
+
+    fn try_from(response: &FeeStatsResponse) -> Result<Self, Self::Error> {
+        let fee = &response.fee_charged;
+
+        let ledger_capacity_usage = response
+            .ledger_capacity_usage
+            .as_deref()
+            .map(|raw| parse_f64_field(raw, "ledger_capacity_usage"))
+            .transpose()?;
+
+        Ok(Self {
+            ledger: parse_u64_field(&response.last_ledger, "last_ledger")?,
+            base_fee: parse_u64_field(&response.last_ledger_base_fee, "last_ledger_base_fee")?,
+            min_fee_charged: parse_u64_field(&fee.min, "fee_charged.min")?,
+            max_fee_charged: parse_u64_field(&fee.max, "fee_charged.max")?,
+            mode_fee_charged: parse_u64_field(&fee.mode, "fee_charged.mode")?,
+            mean_fee_charged: parse_f64_field(&fee.mean, "fee_charged.mean")?,
+            median_fee_charged: parse_u64_field(&fee.median, "fee_charged.median")?,
+            p10_fee_charged: parse_u64_field(&fee.p10, "fee_charged.p10")?,
+            p95_fee_charged: parse_u64_field(&fee.p95, "fee_charged.p95")?,
+            p99_fee_charged: parse_u64_field(&fee.p99, "fee_charged.p99")?,
+            max_fee: parse_u64_field(&response.max_fee.max, "max_fee.max")?,
+            ledger_capacity_usage,
+            timestamp: Utc::now(),
+        })
     }
 }
 
@@ -226,28 +301,78 @@ mod tests {
         assert!(store.get_last_n(5).is_empty());
     }
 
-    // ---- get_by_hash ----
+    // ---- FeeStatsSnapshot ----
 
-    #[test]
-    fn get_by_hash_returns_matching_point() {
-        let mut store = FeeHistoryStore::new(10);
-        store.push(make_point(100, 2));
-        store.push(make_point(200, 1));
-        let result = store.get_by_hash("hash_200");
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().fee_amount, 200);
+    fn fee_stats_response_json() -> String {
+        r#"{
+            "last_ledger": "50000001",
+            "last_ledger_base_fee": "100",
+            "ledger_capacity_usage": "0.97",
+            "fee_charged": {
+                "min": "100",
+                "max": "5000",
+                "mode": "213",
+                "mean": "250.75",
+                "median": "200",
+                "p10": "100",
+                "p20": "100",
+                "p30": "120",
+                "p40": "140",
+                "p50": "150",
+                "p60": "200",
+                "p70": "300",
+                "p80": "400",
+                "p90": "500",
+                "p95": "800",
+                "p99": "1200"
+            },
+            "max_fee": {
+                "min": "100",
+                "max": "10000",
+                "mode": "10000",
+                "mean": "9876.5",
+                "median": "10000"
+            }
+        }"#
+        .to_string()
     }
 
     #[test]
-    fn get_by_hash_returns_none_when_not_found() {
-        let mut store = FeeHistoryStore::new(10);
-        store.push(make_point(100, 1));
-        assert!(store.get_by_hash("nonexistent").is_none());
+    fn fee_stats_snapshot_converts_from_response() {
+        let response: FeeStatsResponse = serde_json::from_str(&fee_stats_response_json()).unwrap();
+        let snapshot = FeeStatsSnapshot::try_from(&response).unwrap();
+
+        assert_eq!(snapshot.ledger, 50_000_001);
+        assert_eq!(snapshot.base_fee, 100);
+        assert_eq!(snapshot.min_fee_charged, 100);
+        assert_eq!(snapshot.max_fee_charged, 5000);
+        assert_eq!(snapshot.mode_fee_charged, 213);
+        assert!((snapshot.mean_fee_charged - 250.75).abs() < f64::EPSILON);
+        assert_eq!(snapshot.median_fee_charged, 200);
+        assert_eq!(snapshot.p10_fee_charged, 100);
+        assert_eq!(snapshot.p95_fee_charged, 800);
+        assert_eq!(snapshot.p99_fee_charged, 1200);
+        assert_eq!(snapshot.max_fee, 10_000);
+        assert!((snapshot.ledger_capacity_usage.unwrap() - 0.97).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn get_by_hash_on_empty_store_returns_none() {
-        let store = FeeHistoryStore::new(10);
-        assert!(store.get_by_hash("anything").is_none());
+    fn fee_stats_snapshot_capacity_usage_is_optional() {
+        let json = fee_stats_response_json().replace("\"0.97\"", "null");
+        let response: FeeStatsResponse = serde_json::from_str(&json).unwrap();
+        let snapshot = FeeStatsSnapshot::try_from(&response).unwrap();
+        assert!(snapshot.ledger_capacity_usage.is_none());
+    }
+
+    #[test]
+    fn fee_stats_snapshot_rejects_invalid_numeric_fields() {
+        let json = fee_stats_response_json().replace("\"50000001\"", "\"not-a-number\"");
+        let response: FeeStatsResponse = serde_json::from_str(&json).unwrap();
+        let err = FeeStatsSnapshot::try_from(&response).unwrap_err();
+        assert!(
+            err.to_string().contains("last_ledger"),
+            "error should name the offending field: {}",
+            err
+        );
     }
 }

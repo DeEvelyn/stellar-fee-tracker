@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use stellar_devkit::config::{ConfigValidator, DevkitConfig, ValidationSeverity};
+use stellar_devkit::config::{ConfigValidator, DevkitConfig};
 
 /// Helper to create a valid baseline config
 fn valid_config() -> DevkitConfig {
@@ -451,7 +451,7 @@ fn test_config_with_only_warnings_is_valid() {
     assert!(result.is_valid());
     assert!(result.has_issues());
     assert_eq!(result.errors().len(), 0);
-    assert!(result.warnings().len() > 0);
+    assert!(!result.warnings().is_empty());
 }
 
 #[test]

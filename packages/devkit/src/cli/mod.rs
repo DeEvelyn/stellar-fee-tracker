@@ -73,18 +73,13 @@ impl MockArgs {
 // ---------------------------------------------------------------------------
 
 /// Input source for subcommands that accept fee data (file or stdin pipe).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum InputSource {
     /// Read from a file at the given path.
     File(std::path::PathBuf),
     /// Read from stdin (piped input).
+    #[default]
     Stdin,
-}
-
-impl Default for InputSource {
-    fn default() -> Self {
-        Self::Stdin
-    }
 }
 
 impl InputSource {

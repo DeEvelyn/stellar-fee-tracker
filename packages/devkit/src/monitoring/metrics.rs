@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 /// A snapshot of devkit runtime metrics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Metrics {
     /// Number of simulation runs completed.
     pub simulations_run: u64,
@@ -20,21 +20,6 @@ pub struct Metrics {
     pub memory_estimate_bytes: u64,
     /// Custom metric key-value pairs.
     pub custom: BTreeMap<String, f64>,
-}
-
-impl Default for Metrics {
-    fn default() -> Self {
-        Self {
-            simulations_run: 0,
-            total_fee_points: 0,
-            spikes_detected: 0,
-            exports_performed: 0,
-            replays_performed: 0,
-            uptime_secs: 0,
-            memory_estimate_bytes: 0,
-            custom: BTreeMap::new(),
-        }
-    }
 }
 
 impl Metrics {
@@ -157,6 +142,7 @@ impl Metrics {
 }
 
 /// Arguments for the `metrics` subcommand.
+#[derive(Default)]
 pub struct MetricsArgs {
     /// Output as JSON.
     pub json: bool,
@@ -164,16 +150,6 @@ pub struct MetricsArgs {
     pub reset: bool,
     /// Suppress all output except errors.
     pub quiet: bool,
-}
-
-impl Default for MetricsArgs {
-    fn default() -> Self {
-        Self {
-            json: false,
-            reset: false,
-            quiet: false,
-        }
-    }
 }
 
 impl MetricsArgs {

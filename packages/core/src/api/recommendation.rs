@@ -30,6 +30,7 @@ pub async fn recommend(
     Json(body): Json<RecommendRequest>,
 ) -> Result<Json<RecommendResponse>, AppError> {
     validate_recommend_request(&body).map_err(|(status, err_json)| {
+    validate_recommend_request(&body).map_err(|(_status, err_json)| {
         AppError::Parse(
             err_json["error"]
                 .as_str()
@@ -70,7 +71,7 @@ pub async fn get_recommend(
     let ratio = avg_fee as f64 / base_fee as f64;
 
     let percentile_value = |sorted: &[u64], pct: usize| -> u64 {
-        let idx = ((pct * sorted.len() + 99) / 100).min(sorted.len() - 1);
+        let idx = (pct * sorted.len()).div_ceil(100).min(sorted.len() - 1);
         sorted[idx]
     };
 
