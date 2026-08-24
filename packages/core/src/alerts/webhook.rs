@@ -8,17 +8,45 @@ const REQUEST_TIMEOUT_SECONDS: u64 = 10;
 const MAX_ATTEMPTS: usize = 2;
 const RETRY_DELAY_SECONDS: u64 = 2;
 
+/// Webhook payload shape, generalized across all Issue #556 alert types
+/// (spike | recovery | good_window | stale_data). `event`, `network`, and
+/// `timestamp` apply to every type; the rest are per-type and omitted
+/// from the JSON body entirely when not applicable
+/// (`skip_serializing_if`), so an existing `spike` webhook consumer sees
+/// byte-identical JSON to before this change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlertPayload {
     pub event: String,
-    pub severity: String,
-    pub peak_fee: u64,
-    pub baseline_fee: f64,
-    pub spike_ratio: f64,
-    pub start_time: DateTime<Utc>,
-    pub duration_seconds: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_fee: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_fee: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spike_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<i64>,
     pub network: String,
     pub timestamp: DateTime<Utc>,
+    /// For `recovery`, the identity of the spike it resolves. Matches
+    /// `AlertEvent.correlation_id` in the DB history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    /// For `good_window`, the congestion trend that triggered it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub congestion_trend: Option<String>,
+    /// For `good_window`, the trend strength that triggered it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trend_strength: Option<String>,
+    /// For `stale_data`, how many seconds stale the data currently is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub freshness_seconds: Option<i64>,
+    /// For `stale_data`, the configured threshold that was crossed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staleness_threshold_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +71,10 @@ impl WebhookDelivery {
             .unwrap_or_else(|_| reqwest::Client::new());
 
         Self { client, url }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     #[allow(dead_code)]
@@ -97,19 +129,71 @@ mod tests {
     fn build_payload() -> AlertPayload {
         AlertPayload {
             event: "fee_spike_detected".to_string(),
-            severity: "Major".to_string(),
-            peak_fee: 5000,
-            baseline_fee: 130.5,
-            spike_ratio: 38.3,
-            start_time: DateTime::parse_from_rfc3339("2025-01-14T10:45:00Z")
-                .unwrap()
-                .with_timezone(&Utc),
-            duration_seconds: 120,
+            severity: Some("Major".to_string()),
+            peak_fee: Some(5000),
+            baseline_fee: Some(130.5),
+            spike_ratio: Some(38.3),
+            start_time: Some(
+                DateTime::parse_from_rfc3339("2025-01-14T10:45:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            duration_seconds: Some(120),
             network: "mainnet".to_string(),
             timestamp: DateTime::parse_from_rfc3339("2025-01-14T10:47:00Z")
                 .unwrap()
                 .with_timezone(&Utc),
+            correlation_id: None,
+            congestion_trend: None,
+            trend_strength: None,
+            freshness_seconds: None,
+            staleness_threshold_seconds: None,
         }
+    }
+
+    #[test]
+    fn spike_payload_omits_none_fields_from_json() {
+        // Backward compatibility check (Issue #556): a spike payload's
+        // JSON shape must be byte-identical to before the AlertPayload
+        // generalization — no new keys should appear for an existing
+        // spike-only consumer.
+        let payload = build_payload();
+        let json = serde_json::to_value(&payload).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(!obj.contains_key("correlation_id"));
+        assert!(!obj.contains_key("congestion_trend"));
+        assert!(!obj.contains_key("trend_strength"));
+        assert!(!obj.contains_key("freshness_seconds"));
+        assert!(!obj.contains_key("staleness_threshold_seconds"));
+        assert_eq!(obj.get("severity").unwrap(), "Major");
+    }
+
+    #[test]
+    fn good_window_payload_omits_spike_only_fields() {
+        let payload = AlertPayload {
+            event: "good_submission_window".to_string(),
+            severity: None,
+            peak_fee: None,
+            baseline_fee: None,
+            spike_ratio: None,
+            start_time: None,
+            duration_seconds: None,
+            network: "mainnet".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2025-01-14T10:47:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            correlation_id: None,
+            congestion_trend: Some("Declining".to_string()),
+            trend_strength: Some("Strong".to_string()),
+            freshness_seconds: None,
+            staleness_threshold_seconds: None,
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(!obj.contains_key("severity"));
+        assert!(!obj.contains_key("peak_fee"));
+        assert!(!obj.contains_key("start_time"));
+        assert_eq!(obj.get("congestion_trend").unwrap(), "Declining");
     }
 
     #[tokio::test]
