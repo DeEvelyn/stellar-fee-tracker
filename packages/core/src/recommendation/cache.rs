@@ -69,6 +69,7 @@ mod tests {
             alternatives: vec![],
             cold_start: false,
             data_quality: None,
+            explanation: None,
         }
     }
 

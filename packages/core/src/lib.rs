@@ -2,6 +2,7 @@
 // Production entry point remains .
 
 pub mod alerts;
+pub mod analytics;
 pub mod api;
 pub mod cache;
 pub mod db;
