@@ -1,4 +1,5 @@
 #[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(Debug, Clone)]
 pub struct RecommendationConfig {
     pub default_confidence: f64,
@@ -19,6 +20,8 @@ impl Default for RecommendationConfig {
         }
     }
 }
+
+use crate::insights::types::DataQuality;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -54,6 +57,8 @@ pub struct RecommendResponse {
     pub confidence: f64,
     pub network_condition: String,
     pub alternatives: Vec<FeeAlternative>,
+    pub cold_start: bool,
+    pub data_quality: Option<DataQuality>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

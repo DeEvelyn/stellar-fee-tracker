@@ -67,6 +67,8 @@ mod tests {
             confidence: 0.95,
             network_condition: "normal".to_string(),
             alternatives: vec![],
+            cold_start: false,
+            data_quality: None,
         }
     }
 

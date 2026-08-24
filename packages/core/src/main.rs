@@ -221,6 +221,16 @@ async fn main() {
         }));
 
     // Business routes that require optional API-key auth.
+    let recommendation_engine = FeeRecommendationEngine::new(
+        fee_store.clone(),
+        Some(insights_engine.clone()),
+        config.recommendation.clone(),
+    )
+    .with_repository(repository.clone());
+    let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
+        engine: recommendation_engine,
+        metrics: Some(app_metrics.clone()),
+        repository: repository.clone(),
     let recommendation_engine =
         FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()))
             .with_repository(repository.clone());
