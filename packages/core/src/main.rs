@@ -137,7 +137,9 @@ async fn main() {
         config.webhook_url.clone(),
         config.alert_threshold.clone(),
         config.stellar_network.as_str().to_string(),
+        Some(repository.clone()),
     ));
+    alert_manager.rehydrate_seen_spikes().await;
     let rate_limit_state = Arc::new(RateLimitState::new(config.rate_limit_per_minute));
 
     // ---- CORS policy ----
@@ -197,6 +199,8 @@ async fn main() {
         .route(
             "/fees/account/:account_id",
             get(api::fees::account_fee_history),
+        )
+        .route(
             "/fees/transaction/:hash",
             get(api::fees::transaction_fee_lookup),
         )
@@ -209,13 +213,13 @@ async fn main() {
         }));
 
     // Business routes that require optional API-key auth.
-    let recommendation_engine = FeeRecommendationEngine::new(
-        fee_store.clone(),
-        Some(insights_engine.clone()),
-    );
+    let recommendation_engine =
+        FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()))
+            .with_repository(repository.clone());
     let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
         engine: recommendation_engine,
         metrics: Some(app_metrics.clone()),
+        repository: Some(repository.clone()),
     });
     let recommendation_router = Router::new()
         .route(
@@ -355,4 +359,3 @@ async fn main() {
 
     tracing::info!("Application shut down cleanly");
 }
-

@@ -45,6 +45,10 @@ impl WebhookDelivery {
         Self { client, url }
     }
 
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
     #[allow(dead_code)]
     pub async fn send(&self, payload: &AlertPayload) -> Result<(), WebhookError> {
         self.send_with_retry(payload).await
