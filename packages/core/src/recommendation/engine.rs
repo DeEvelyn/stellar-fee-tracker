@@ -86,6 +86,11 @@ impl FeeRecommendationEngine {
             let mut cache = self.cache.write().await;
             cache.set(cache_key, result.clone());
             return Ok(result);
+        let recent_points: Vec<FeeDataPoint> =
+            fee_store.get_since(Utc::now() - chrono::Duration::hours(1));
+
+        if recent_points.is_empty() {
+            return self.fallback_recommendation(target_ledgers, &urgency).await;
         }
 
         let fees: Vec<u64> = recent_points.iter().map(|p| p.fee_amount).collect();
@@ -108,6 +113,7 @@ impl FeeRecommendationEngine {
         drop(fee_store);
 
         let (percentile, _label) = urgency_percentile(&urgency);
+        let (percentile, basis_label) = urgency_percentile(&urgency);
         let base_fee = percentile_value(&sorted, percentile);
 
         // Compute explanation using multi-window comparison
@@ -122,6 +128,7 @@ impl FeeRecommendationEngine {
             Some(exp) => self.multi_window_adjustment(base_fee, exp).await,
             None => base_fee,
         };
+        let adjusted = base_fee;
 
         let final_fee = match max_fee {
             Some(max) => adjusted.min(max),
@@ -170,6 +177,22 @@ impl FeeRecommendationEngine {
                     tracing::warn!("Failed to persist recommendation: {}", err);
                 }
             });
+        if let Some(repository) = &self.repository {
+            let rec = Recommendation {
+                id: None,
+                recommended_fee: result.fee_in_stroops as i64,
+                confidence: result.confidence,
+                target_ledgers: target_ledgers as i64,
+                network_condition: result.network_condition.clone(),
+                percentile_basis: basis_label.to_string(),
+                input_confidence: result.confidence,
+                input_ledgers: target_ledgers as i64,
+                sample_count: sorted.len() as i64,
+                computed_at: Utc::now().to_rfc3339(),
+            };
+            if let Err(err) = repository.insert_recommendation(&rec).await {
+                tracing::warn!("Failed to persist recommendation: {}", err);
+            }
         }
 
         let mut cache = self.cache.write().await;
@@ -571,11 +594,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn network_condition_adjustment_normal() {
+    async fn detect_network_condition_without_engine_returns_unknown() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
         let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let adjusted = engine.network_condition_adjustment(200).await;
         assert_eq!(adjusted, 200);
+        let engine = FeeRecommendationEngine::new(store, None);
+        let condition = engine.detect_network_condition().await;
+        assert_eq!(condition, "unknown");
     }
 
     #[tokio::test]
@@ -722,6 +748,21 @@ mod tests {
             ..Default::default()
         };
         let engine = FeeRecommendationEngine::new(store, None, config);
+    async fn recommend_no_congestion_double_counting() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::hours(2);
+        let fees = vec![100, 100, 200, 200, 300, 300, 400, 500, 600, 700];
+        for (i, f) in fees.iter().enumerate() {
+            store_w.push(FeeDataPoint {
+                fee_amount: *f,
+                timestamp: base + chrono::Duration::minutes(i as i64),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i as u64,
+            });
+        }
+        drop(store_w);
+        let engine = FeeRecommendationEngine::new(store, None);
         let req = RecommendRequest {
             target_ledgers: Some(2),
             urgency: Some(Urgency::Medium),
@@ -788,6 +829,217 @@ mod tests {
         assert_eq!(
             dq.completeness, 0.0,
             "no insights engine means zero completeness"
+        assert!(result.fee_in_stroops >= 100);
+        assert!(result.confidence >= 0.0 && result.confidence <= 1.0);
+    }
+
+    #[tokio::test]
+    async fn recommend_target_ledgers_1_returns_higher_fee() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::hours(2);
+        let fees = vec![100, 100, 200, 200, 300, 300, 400, 500, 600, 700];
+        for (i, f) in fees.iter().enumerate() {
+            store_w.push(FeeDataPoint {
+                fee_amount: *f,
+                timestamp: base + chrono::Duration::minutes(i as i64),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i as u64,
+            });
+        }
+        drop(store_w);
+        let engine = FeeRecommendationEngine::new(store, None);
+        let req_immediate = RecommendRequest {
+            target_ledgers: Some(1),
+            urgency: Some(Urgency::Urgent),
+            max_fee: None,
+        };
+        let req_long = RecommendRequest {
+            target_ledgers: Some(10),
+            urgency: Some(Urgency::Low),
+            max_fee: None,
+        };
+        let r1 = engine.recommend(&req_immediate).await.unwrap();
+        let r10 = engine.recommend(&req_long).await.unwrap();
+        assert!(
+            r1.fee_in_stroops >= r10.fee_in_stroops,
+            "immediate should recommend higher fee than long wait"
+        );
+    }
+
+    async fn make_store_with_fees(fees: Vec<(i64, u64)>) -> Arc<RwLock<FeeHistoryStore>> {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let base = Utc::now() - chrono::Duration::minutes(50);
+        {
+            let mut store_w = store.write().await;
+            for (minute_offset, fee) in fees {
+                store_w.push(FeeDataPoint {
+                    fee_amount: fee,
+                    timestamp: base + chrono::Duration::minutes(minute_offset),
+                    transaction_hash: format!("tx_{}", minute_offset),
+                    ledger_sequence: 100 + minute_offset as u64,
+                });
+            }
+        }
+        store
+    }
+
+    #[tokio::test]
+    async fn regression_rising_fees_higher_adjustment() {
+        // Long window: stable at 100, short window: rising to 200+
+        let mut fees = Vec::new();
+        for i in 0..30 {
+            fees.push((i, 100));
+        }
+        for i in 30..50 {
+            fees.push((i, 200));
+        }
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(!result.cold_start);
+        let exp = result.explanation.unwrap();
+        assert!(
+            exp.adjustment_applied > 1.0,
+            "rising fees should increase adjustment: {}",
+            exp.adjustment_applied
+        );
+        assert!(exp.adjustment_reason.contains("above"));
+    }
+
+    #[tokio::test]
+    async fn regression_falling_fees_lower_adjustment() {
+        // Long window: stable at 200, short window: dropping to 100
+        let mut fees = Vec::new();
+        for i in 0..30 {
+            fees.push((i, 200));
+        }
+        for i in 30..50 {
+            fees.push((i, 100));
+        }
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(!result.cold_start);
+        let exp = result.explanation.unwrap();
+        assert!(
+            exp.adjustment_applied < 1.0,
+            "falling fees should decrease adjustment: {}",
+            exp.adjustment_applied
+        );
+        assert!(exp.adjustment_reason.contains("below"));
+    }
+
+    #[tokio::test]
+    async fn regression_stable_fees_no_adjustment() {
+        // All fees same — no shift
+        let fees: Vec<(i64, u64)> = (0..50).map(|i| (i, 150)).collect();
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        let exp = result.explanation.unwrap();
+        assert_eq!(
+            exp.adjustment_applied, 1.0,
+            "stable fees should have no adjustment"
+        );
+    }
+
+    #[tokio::test]
+    async fn regression_cold_start_no_explanation() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let config = RecommendationConfig {
+            min_sample_count: 50,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(result.cold_start);
+        assert!(result.explanation.is_none());
+    }
+
+    #[tokio::test]
+    async fn regression_explanation_matches_numeric_fields() {
+        let mut fees = Vec::new();
+        for i in 0..30 {
+            fees.push((i, 100));
+        }
+        for i in 30..50 {
+            fees.push((i, 180));
+        }
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        let exp = result.explanation.unwrap();
+        // Verify explanation is internally consistent:
+        // 1. percentile_shift positive means short > long, adjustment > 1.0
+        // 2. percentile_shift negative means short < long, adjustment < 1.0
+        // 3. percentile_shift zero means no change, adjustment == 1.0
+        if exp.percentile_shift > 0.0 {
+            assert!(
+                exp.adjustment_applied > 1.0,
+                "positive shift should yield adjustment > 1.0: shift={}, adj={}",
+                exp.percentile_shift,
+                exp.adjustment_applied
+            );
+        } else if exp.percentile_shift < 0.0 {
+            assert!(
+                exp.adjustment_applied < 1.0,
+                "negative shift should yield adjustment < 1.0: shift={}, adj={}",
+                exp.percentile_shift,
+                exp.adjustment_applied
+            );
+        } else {
+            assert_eq!(exp.adjustment_applied, 1.0);
+        }
+        // short/base stats should be populated
+        assert!(
+            exp.short_window_median > 0,
+            "short_window_median should be populated"
+        );
+        assert!(
+            exp.long_window_median > 0,
+            "long_window_median should be populated"
         );
     }
 

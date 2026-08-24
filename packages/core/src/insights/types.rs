@@ -25,8 +25,8 @@ pub struct CurrentInsights {
 /// Rolling averages across different time windows
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RollingAverages {
-    pub short_term: AverageResult,  // 1 hour
-    pub medium_term: AverageResult, // 6 hours
+    pub short_term: AverageResult,  // 5 minutes
+    pub medium_term: AverageResult, // 1 hour
     pub long_term: AverageResult,   // 24 hours
 }
 

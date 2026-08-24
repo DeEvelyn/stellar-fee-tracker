@@ -313,10 +313,10 @@ fn percentile_nearest_rank(sorted: &[u64], percentile: usize) -> u64 {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TrendChanges {
+    #[serde(rename = "5m_pct")]
+    pub five_m_pct: Option<f64>,
     #[serde(rename = "1h_pct")]
     pub one_h_pct: Option<f64>,
-    #[serde(rename = "6h_pct")]
-    pub six_h_pct: Option<f64>,
     #[serde(rename = "24h_pct")]
     pub twenty_four_h_pct: Option<f64>,
 }
@@ -340,14 +340,14 @@ pub async fn fee_trend(State(state): State<FeesState>) -> Result<Json<FeeTrendRe
     let averages = &insights.rolling_averages;
 
     // Compare each window against the next-longer baseline:
-    //  1h_pct  = (short_term − medium_term) / medium_term → how much the last 1h
-    //            deviates from the 6h trend.
-    //  6h_pct  = (medium_term − long_term) / long_term    → how much the last 6h
-    //            deviates from the 24h trend.
+    //  5m_pct  = (short_term − medium_term) / medium_term → how much the last 5 min
+    //            deviates from the 1-hour trend.
+    //  1h_pct  = (medium_term − long_term) / long_term    → how much the last 1 hour
+    //            deviates from the 24-hour trend.
     //  24h_pct = None; we have no longer-window baseline to compare against.
     let changes = TrendChanges {
-        one_h_pct: percent_change(averages.short_term.value, &averages.medium_term),
-        six_h_pct: percent_change(averages.medium_term.value, &averages.long_term),
+        five_m_pct: percent_change(averages.short_term.value, &averages.medium_term),
+        one_h_pct: percent_change(averages.medium_term.value, &averages.long_term),
         twenty_four_h_pct: None,
     };
 
@@ -428,19 +428,19 @@ pub async fn account_fee_history(
         )));
     }
 
-    let total_fees: u64 = records.iter().map(|r| r.fee_charged).sum();
-    let min_fee = records.iter().map(|r| r.fee_charged).min().unwrap_or(0);
-    let max_fee = records.iter().map(|r| r.fee_charged).max().unwrap_or(0);
+    let total_fees: u64 = records.iter().map(|r| r.fee_amount).sum();
+    let min_fee = records.iter().map(|r| r.fee_amount).min().unwrap_or(0);
+    let max_fee = records.iter().map(|r| r.fee_amount).max().unwrap_or(0);
     let avg_fee = total_fees as f64 / records.len() as f64;
 
     let transactions: Vec<AccountTransactionEntry> = records
         .iter()
         .map(|r| AccountTransactionEntry {
-            hash: r.hash.clone(),
-            fee_charged: r.fee_charged,
-            ledger: r.ledger,
-            created_at: r.created_at.clone(),
-            successful: r.successful,
+            hash: r.transaction_hash.clone(),
+            fee_charged: r.fee_amount,
+            ledger: r.ledger_sequence,
+            created_at: r.timestamp.to_rfc3339(),
+            successful: true,
         })
         .collect();
 
@@ -456,6 +456,8 @@ pub async fn account_fee_history(
 }
 
 #[derive(serde::Serialize)]
+#[derive(Debug, Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
     pub fee_amount: u64,
@@ -1070,8 +1072,56 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload: FeeTrendResponse = serde_json::from_slice(&body).unwrap();
+        assert!(payload.changes.five_m_pct.is_none());
         assert!(payload.changes.one_h_pct.is_none());
-        assert!(payload.changes.six_h_pct.is_none());
         assert!(payload.changes.twenty_four_h_pct.is_none());
+    }
+
+    #[test]
+    fn trend_changes_serde_labels() {
+        let tc = TrendChanges {
+            five_m_pct: Some(5.0),
+            one_h_pct: Some(-2.0),
+            twenty_four_h_pct: None,
+        };
+        let json = serde_json::to_value(&tc).unwrap();
+        assert_eq!(json["5m_pct"], 5.0);
+        assert_eq!(json["1h_pct"], -2.0);
+        assert!(json["24h_pct"].is_null());
+    }
+
+    #[test]
+    fn percent_change_calculation() {
+        let window = crate::insights::types::TimeWindow {
+            name: "medium".to_string(),
+            duration: chrono::Duration::minutes(60),
+            min_samples: 10,
+        };
+        let avg = crate::insights::types::AverageResult {
+            value: 200.0,
+            sample_count: 50,
+            is_partial: false,
+            calculated_at: Utc::now(),
+            time_window: window,
+        };
+        let result = percent_change(400.0, &avg);
+        assert_eq!(result, Some(100.0));
+    }
+
+    #[test]
+    fn percent_change_returns_none_when_partial() {
+        let window = crate::insights::types::TimeWindow {
+            name: "short".to_string(),
+            duration: chrono::Duration::minutes(5),
+            min_samples: 10,
+        };
+        let avg = crate::insights::types::AverageResult {
+            value: 200.0,
+            sample_count: 3,
+            is_partial: true,
+            calculated_at: Utc::now(),
+            time_window: window,
+        };
+        assert_eq!(percent_change(100.0, &avg), None);
     }
 }
