@@ -68,7 +68,10 @@ pub struct ExtremeValue {
 /// Congestion trend analysis results
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CongestionTrends {
+    /// Deprecated: use `congestion_level` instead.
     pub current_trend: TrendIndicator,
+    /// Unified congestion level — canonical vocabulary for all API surfaces.
+    pub congestion_level: CongestionLevel,
     pub recent_spikes: Vec<FeeSpike>,
     pub trend_strength: TrendStrength,
     pub predicted_duration: Option<Duration>,
@@ -92,6 +95,45 @@ pub enum TrendIndicator {
     Rising,
     Congested,
     Declining,
+}
+
+/// Unified congestion level — the canonical vocabulary for all API surfaces.
+///
+/// Maps from `TrendIndicator` for backward compatibility, but this is the
+/// single label set that should be used in all responses going forward:
+/// - `/insights/congestion`
+/// - `/fees/recommend`
+/// - `/fees/trend`
+/// - `/fees/wait-advisory` (new)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CongestionLevel {
+    Low,
+    Moderate,
+    High,
+    Critical,
+}
+
+impl CongestionLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CongestionLevel::Low => "low",
+            CongestionLevel::Moderate => "moderate",
+            CongestionLevel::High => "high",
+            CongestionLevel::Critical => "critical",
+        }
+    }
+}
+
+impl From<&TrendIndicator> for CongestionLevel {
+    fn from(trend: &TrendIndicator) -> Self {
+        match trend {
+            TrendIndicator::Normal => CongestionLevel::Low,
+            TrendIndicator::Rising => CongestionLevel::Moderate,
+            TrendIndicator::Congested => CongestionLevel::High,
+            TrendIndicator::Declining => CongestionLevel::Low,
+        }
+    }
 }
 
 /// Strength of a congestion trend

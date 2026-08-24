@@ -4,6 +4,7 @@ mod api;
 mod cache;
 mod cli;
 mod config;
+mod congestion;
 mod db;
 mod error;
 mod insights;
@@ -213,6 +214,7 @@ async fn main() {
             "/fees/transaction/:hash",
             get(api::fees::transaction_fee_lookup),
         )
+        .route("/fees/wait-advisory", get(api::fees::wait_advisory))
         .with_state(Arc::new(api::fees::FeesApiState {
             fee_stats_provider: Some(fee_stats_provider),
             fee_cache: current_fees_cache,

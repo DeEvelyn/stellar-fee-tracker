@@ -5,6 +5,7 @@ pub mod alerts;
 pub mod analytics;
 pub mod api;
 pub mod cache;
+pub mod congestion;
 pub mod db;
 pub mod error;
 pub mod insights;

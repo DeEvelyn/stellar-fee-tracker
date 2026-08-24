@@ -240,6 +240,7 @@ impl FeeInsightsEngine {
 
         let congestion_trends = CongestionTrends {
             current_trend: TrendIndicator::Normal,
+            congestion_level: CongestionLevel::Low,
             recent_spikes: self.detector.get_recent_spikes(),
             trend_strength: self.detector.calculate_trend_strength(),
             predicted_duration: None,
@@ -301,6 +302,7 @@ impl FeeInsightsEngine {
     pub fn get_congestion_trends(&self) -> CongestionTrends {
         CongestionTrends {
             current_trend: TrendIndicator::Normal,
+            congestion_level: CongestionLevel::Low,
             recent_spikes: self.detector.get_recent_spikes(),
             trend_strength: self.detector.calculate_trend_strength(),
             predicted_duration: None,

@@ -512,8 +512,8 @@ mod tests {
     };
 
     use crate::insights::{
-        AverageResult, CongestionTrends, CurrentInsights, DataQuality, FeeSpike, RollingAverages,
-        SpikeSeverity, TimeWindow, TrendIndicator, TrendStrength,
+        AverageResult, CongestionLevel, CongestionTrends, CurrentInsights, DataQuality, FeeSpike,
+        RollingAverages, SpikeSeverity, TimeWindow, TrendIndicator, TrendStrength,
     };
 
     fn build_update_with_spike(severity: SpikeSeverity) -> InsightsUpdate {
@@ -566,6 +566,7 @@ mod tests {
                 },
                 congestion_trends: CongestionTrends {
                     current_trend: TrendIndicator::Rising,
+                    congestion_level: CongestionLevel::Moderate,
                     recent_spikes: vec![spike],
                     trend_strength: TrendStrength::Strong,
                     predicted_duration: None,
