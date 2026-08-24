@@ -15,6 +15,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use super::headers::{cache_control, compute_etag, if_none_match_matches, last_modified};
 use crate::cache::ResponseCache;
+use crate::congestion::wait_advisory::{compute_wait_advisory, WaitAdvisory};
 use crate::error::AppError;
 use crate::insights::{FeeDataPoint, FeeInsightsEngine, TrendIndicator, TrendStrength};
 use crate::services::horizon::HorizonClient;
@@ -480,6 +481,73 @@ pub async fn transaction_fee_lookup(
         })),
         None => Err(AppError::Parse(format!("Transaction not found: {}", hash))),
     }
+}
+
+/// Default comparison window for wait advisory (24 hours in seconds).
+const DEFAULT_WAIT_WINDOW_SECS: u64 = 86_400;
+
+/// Recent window for current fee sampling (5 minutes).
+const RECENT_WINDOW_MINS: i64 = 5;
+
+/// Spike detection window (1 hour).
+const SPIKE_WINDOW_MINS: i64 = 60;
+
+/// Spike threshold multiplier relative to the short-term median.
+const SPIKE_THRESHOLD_MULTIPLIER: f64 = 2.0;
+
+#[derive(Debug, Deserialize)]
+pub struct WaitAdvisoryQuery {
+    /// Comparison window in seconds. Defaults to 86400 (24h).
+    pub window_secs: Option<u64>,
+}
+
+/// `GET /fees/wait-advisory`
+///
+/// Returns a recommendation on whether to submit a transaction now or wait.
+/// Compares the current fee level against persisted multi-day history using
+/// relative (percentile/ratio-based) thresholds, so it works correctly on
+/// both low-fee testnets and high-fee mainnets.
+pub async fn wait_advisory(
+    State(state): State<FeesState>,
+    Query(params): Query<WaitAdvisoryQuery>,
+) -> Result<Json<WaitAdvisory>, AppError> {
+    let window_secs = params.window_secs.unwrap_or(DEFAULT_WAIT_WINDOW_SECS);
+    let now = Utc::now();
+
+    // Fetch recent data (last 5 minutes) for current fee
+    let recent_fees = {
+        let store = state.fee_store.read().await;
+        store.get_since(now - Duration::minutes(RECENT_WINDOW_MINS))
+    };
+
+    // Fetch historical data for comparison
+    let historical_fees = {
+        let store = state.fee_store.read().await;
+        store.get_since(now - Duration::seconds(window_secs as i64))
+    };
+
+    // Get spike count from insights engine
+    let spike_count = match &state.insights_engine {
+        Some(engine) => {
+            let insights = engine.read().await.get_current_insights();
+            insights.congestion_trends.recent_spikes.len() as u32
+        }
+        None => 0,
+    };
+
+    // Get capacity usage from insights if available (placeholder — Horizon doesn't
+    // always expose this; we'll use None until the adapter is wired).
+    let capacity_usage: Option<f64> = None;
+
+    let advisory = compute_wait_advisory(
+        &recent_fees,
+        &historical_fees,
+        capacity_usage,
+        spike_count,
+        window_secs,
+    );
+
+    Ok(Json(advisory))
 }
 
 #[cfg(test)]

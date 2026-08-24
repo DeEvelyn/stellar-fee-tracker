@@ -180,7 +180,8 @@ impl CongestionDetector {
             self.trend_analyzer.recent_spikes.iter().cloned().collect();
 
         Ok(CongestionTrends {
-            current_trend,
+            current_trend: current_trend.clone(),
+            congestion_level: CongestionLevel::from(&current_trend),
             recent_spikes,
             trend_strength,
             predicted_duration,
