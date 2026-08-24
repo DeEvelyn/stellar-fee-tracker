@@ -18,12 +18,19 @@ use crate::store::FeeStatsSnapshot;
 /// Must match the `SpikeSeverity` enum variants used by the insights engine.
 pub const VALID_THRESHOLDS: &[&str] = &["Minor", "Moderate", "Major", "Critical"];
 
+/// Valid alert type values. `spike` is the original/default behavior;
+/// the rest are added for Advisor-relevant conditions (Issue #556).
+pub const VALID_ALERT_TYPES: &[&str] = &["spike", "recovery", "good_window", "stale_data"];
+
 /// A single alert webhook configuration row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlertConfig {
     pub id: i64,
     pub webhook_url: String,
     pub threshold: String,
+    /// One of `spike | recovery | good_window | stale_data`. Defaults to
+    /// `spike` for rows created before Issue #556.
+    pub alert_type: String,
     pub enabled: bool,
     pub created_at: String,
 }
@@ -33,6 +40,9 @@ pub struct AlertConfig {
 pub struct AlertEvent {
     pub id: Option<i64>,
     pub config_id: Option<i64>,
+    /// One of `spike | recovery | good_window | stale_data`. Defaults to
+    /// `spike` for rows created before Issue #556.
+    pub alert_type: String,
     pub severity: String,
     pub peak_fee: i64,
     pub baseline_fee: f64,
@@ -40,6 +50,10 @@ pub struct AlertEvent {
     pub webhook_url: String,
     pub delivered: bool,
     pub triggered_at: String,
+    /// For a `recovery` event, the identity of the spike it resolves
+    /// (matches `AlertManager`'s existing spike-identity format).
+    /// `None` for spike / good_window / stale_data events.
+    pub correlation_id: Option<String>,
 }
 
 /// A persisted recommendation row.
@@ -355,10 +369,31 @@ impl FeeRepository {
         Ok(result.last_insert_rowid())
     }
 
+    /// Insert a new alert webhook config with an explicit alert type.
+    /// Caller is expected to validate `alert_type` against
+    /// `VALID_ALERT_TYPES` first.
+    pub async fn insert_alert_config_typed(
+        &self,
+        webhook_url: &str,
+        threshold: &str,
+        alert_type: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query(
+            "INSERT INTO alert_configs (webhook_url, threshold, alert_type) VALUES (?, ?, ?)",
+        )
+        .bind(webhook_url)
+        .bind(threshold)
+        .bind(alert_type)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.last_insert_rowid())
+    }
+
     /// List all alert configs (both enabled and disabled).
     pub async fn list_alert_configs(&self) -> Result<Vec<AlertConfig>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT id, webhook_url, threshold, enabled, created_at FROM alert_configs ORDER BY id ASC",
+            "SELECT id, webhook_url, threshold, alert_type, enabled, created_at FROM alert_configs ORDER BY id ASC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -386,6 +421,7 @@ impl FeeRepository {
                 let id: i64 = col!("id", i64);
                 let webhook_url: String = col!("webhook_url", String);
                 let threshold: String = col!("threshold", String);
+                let alert_type: String = col!("alert_type", String);
                 let enabled: i64 = col!("enabled", i64);
                 let created_at: String = col!("created_at", String);
 
@@ -393,6 +429,7 @@ impl FeeRepository {
                     id,
                     webhook_url,
                     threshold,
+                    alert_type,
                     enabled: enabled != 0,
                     created_at,
                 })
@@ -424,6 +461,30 @@ impl FeeRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Update threshold, enabled state, and alert type for an alert config.
+    /// Returns `true` if a row was updated, `false` if id not found.
+    pub async fn update_alert_config_full(
+        &self,
+        id: i64,
+        threshold: &str,
+        enabled: bool,
+        alert_type: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let enabled_int: i64 = if enabled { 1 } else { 0 };
+
+        let result = sqlx::query(
+            "UPDATE alert_configs SET threshold = ?, enabled = ?, alert_type = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(threshold)
+        .bind(enabled_int)
+        .bind(alert_type)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Soft-delete an alert config by setting enabled = 0.
     /// Returns `true` if a row was found and updated.
     pub async fn delete_alert_config(&self, id: i64) -> Result<bool, sqlx::Error> {
@@ -446,10 +507,11 @@ impl FeeRepository {
 
         sqlx::query(
             "INSERT INTO alert_events
-             (config_id, severity, peak_fee, baseline_fee, spike_ratio, webhook_url, delivered, triggered_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (config_id, alert_type, severity, peak_fee, baseline_fee, spike_ratio, webhook_url, delivered, triggered_at, correlation_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(event.config_id)
+        .bind(&event.alert_type)
         .bind(&event.severity)
         .bind(event.peak_fee)
         .bind(event.baseline_fee)
@@ -457,6 +519,7 @@ impl FeeRepository {
         .bind(&event.webhook_url)
         .bind(delivered_int)
         .bind(&event.triggered_at)
+        .bind(&event.correlation_id)
         .execute(&self.pool)
         .await?;
 
@@ -489,7 +552,7 @@ impl FeeRepository {
         }
 
         let sql = format!(
-            "SELECT id, config_id, severity, peak_fee, baseline_fee, spike_ratio, webhook_url, delivered, triggered_at
+            "SELECT id, config_id, alert_type, severity, peak_fee, baseline_fee, spike_ratio, webhook_url, delivered, triggered_at, correlation_id
              FROM alert_events
              WHERE {}
              ORDER BY triggered_at DESC
@@ -532,6 +595,7 @@ impl FeeRepository {
 
                 let id: i64 = col!("id", i64);
                 let config_id: Option<i64> = col!("config_id", Option<i64>);
+                let alert_type: String = col!("alert_type", String);
                 let severity: String = col!("severity", String);
                 let peak_fee: i64 = col!("peak_fee", i64);
                 let baseline_fee: f64 = col!("baseline_fee", f64);
@@ -539,10 +603,12 @@ impl FeeRepository {
                 let webhook_url: String = col!("webhook_url", String);
                 let delivered: i64 = col!("delivered", i64);
                 let triggered_at: String = col!("triggered_at", String);
+                let correlation_id: Option<String> = col!("correlation_id", Option<String>);
 
                 Some(AlertEvent {
                     id: Some(id),
                     config_id,
+                    alert_type,
                     severity,
                     peak_fee,
                     baseline_fee,
@@ -550,6 +616,7 @@ impl FeeRepository {
                     webhook_url,
                     delivered: delivered != 0,
                     triggered_at,
+                    correlation_id,
                 })
             })
             .collect();
@@ -584,6 +651,147 @@ impl FeeRepository {
             }
             if let Some(del) = delivered_filter {
                 q = q.bind(if del { 1i64 } else { 0i64 });
+            }
+            q.fetch_one(&self.pool).await?
+        };
+
+        use sqlx::Row;
+        let count: i64 = row.try_get("cnt").map_err(|e| {
+            tracing::error!("Failed to decode COUNT(*) result from alert_events: {}", e);
+            e
+        })?;
+        Ok(count)
+    }
+
+    /// Query alert history filtered additionally by alert_type. Same
+    /// pagination/filter semantics as `query_alert_history`.
+    pub async fn query_alert_history_by_type(
+        &self,
+        limit: i64,
+        severity_filter: Option<&str>,
+        delivered_filter: Option<bool>,
+        alert_type_filter: Option<&str>,
+    ) -> Result<Vec<AlertEvent>, sqlx::Error> {
+        let limit = limit.clamp(1, 100);
+
+        let mut conditions = vec!["1=1"];
+        if severity_filter.is_some() {
+            conditions.push("severity = ?");
+        }
+        if delivered_filter.is_some() {
+            conditions.push("delivered = ?");
+        }
+        if alert_type_filter.is_some() {
+            conditions.push("alert_type = ?");
+        }
+
+        let sql = format!(
+            "SELECT id, config_id, alert_type, severity, peak_fee, baseline_fee, spike_ratio, webhook_url, delivered, triggered_at, correlation_id
+             FROM alert_events
+             WHERE {}
+             ORDER BY triggered_at DESC
+             LIMIT ?",
+            conditions.join(" AND ")
+        );
+
+        let rows = {
+            let mut q = sqlx::query(&sql);
+            if let Some(sev) = severity_filter {
+                q = q.bind(sev);
+            }
+            if let Some(del) = delivered_filter {
+                q = q.bind(if del { 1i64 } else { 0i64 });
+            }
+            if let Some(at) = alert_type_filter {
+                q = q.bind(at);
+            }
+            q.bind(limit).fetch_all(&self.pool).await?
+        };
+
+        let events = rows
+            .into_iter()
+            .filter_map(|row| {
+                use sqlx::Row;
+                macro_rules! col {
+                    ($col:literal, $T:ty) => {
+                        match row.try_get::<$T, _>($col) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::error!(
+                                    "alert_events row decode error (column {}): {}",
+                                    $col,
+                                    e
+                                );
+                                return None;
+                            }
+                        }
+                    };
+                }
+
+                let id: i64 = col!("id", i64);
+                let config_id: Option<i64> = col!("config_id", Option<i64>);
+                let alert_type: String = col!("alert_type", String);
+                let severity: String = col!("severity", String);
+                let peak_fee: i64 = col!("peak_fee", i64);
+                let baseline_fee: f64 = col!("baseline_fee", f64);
+                let spike_ratio: f64 = col!("spike_ratio", f64);
+                let webhook_url: String = col!("webhook_url", String);
+                let delivered: i64 = col!("delivered", i64);
+                let triggered_at: String = col!("triggered_at", String);
+                let correlation_id: Option<String> = col!("correlation_id", Option<String>);
+
+                Some(AlertEvent {
+                    id: Some(id),
+                    config_id,
+                    alert_type,
+                    severity,
+                    peak_fee,
+                    baseline_fee,
+                    spike_ratio,
+                    webhook_url,
+                    delivered: delivered != 0,
+                    triggered_at,
+                    correlation_id,
+                })
+            })
+            .collect();
+
+        Ok(events)
+    }
+
+    /// Count alert events matching optional filters including alert_type.
+    pub async fn count_alert_events_by_type(
+        &self,
+        severity_filter: Option<&str>,
+        delivered_filter: Option<bool>,
+        alert_type_filter: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        let mut conditions = vec!["1=1".to_string()];
+        if severity_filter.is_some() {
+            conditions.push("severity = ?".to_string());
+        }
+        if delivered_filter.is_some() {
+            conditions.push("delivered = ?".to_string());
+        }
+        if alert_type_filter.is_some() {
+            conditions.push("alert_type = ?".to_string());
+        }
+
+        let sql = format!(
+            "SELECT COUNT(*) as cnt FROM alert_events WHERE {}",
+            conditions.join(" AND ")
+        );
+
+        let row = {
+            let mut q = sqlx::query(&sql);
+            if let Some(sev) = severity_filter {
+                q = q.bind(sev);
+            }
+            if let Some(del) = delivered_filter {
+                q = q.bind(if del { 1i64 } else { 0i64 });
+            }
+            if let Some(at) = alert_type_filter {
+                q = q.bind(at);
             }
             q.fetch_one(&self.pool).await?
         };
@@ -838,7 +1046,38 @@ mod alert_tests {
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].webhook_url, "https://hooks.example.com/webhook");
         assert_eq!(configs[0].threshold, "Major");
+        // Backward compatibility: rows inserted via the original 2-arg
+        // constructor default to alert_type = 'spike' (Issue #556).
+        assert_eq!(configs[0].alert_type, "spike");
         assert!(configs[0].enabled);
+    }
+
+    #[tokio::test]
+    async fn insert_alert_config_typed_sets_alert_type() {
+        let repo = make_repo().await;
+        let id = repo
+            .insert_alert_config_typed("https://hooks.example.com/typed", "Major", "stale_data")
+            .await
+            .unwrap();
+        assert!(id > 0);
+        let configs = repo.list_alert_configs().await.unwrap();
+        assert_eq!(configs[0].alert_type, "stale_data");
+    }
+
+    #[tokio::test]
+    async fn update_alert_config_full_changes_alert_type() {
+        let repo = make_repo().await;
+        let id = repo
+            .insert_alert_config("https://hooks.example.com/c", "Minor")
+            .await
+            .unwrap();
+        let updated = repo
+            .update_alert_config_full(id, "Major", true, "good_window")
+            .await
+            .unwrap();
+        assert!(updated);
+        let configs = repo.list_alert_configs().await.unwrap();
+        assert_eq!(configs[0].alert_type, "good_window");
     }
 
     #[tokio::test]
@@ -918,6 +1157,7 @@ mod alert_event_tests {
         AlertEvent {
             id: None,
             config_id: None,
+            alert_type: "spike".to_string(),
             severity: severity.to_string(),
             peak_fee: 8000,
             baseline_fee: 130.5,
@@ -925,6 +1165,7 @@ mod alert_event_tests {
             webhook_url: "https://hooks.example.com/test".to_string(),
             delivered,
             triggered_at: chrono::Utc::now().to_rfc3339(),
+            correlation_id: None,
         }
     }
 

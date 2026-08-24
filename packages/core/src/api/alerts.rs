@@ -18,7 +18,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::repository::{AlertConfig, AlertEvent, FeeRepository, VALID_THRESHOLDS};
+use crate::repository::{
+    AlertConfig, AlertEvent, FeeRepository, VALID_ALERT_TYPES, VALID_THRESHOLDS,
+};
 
 /// Shared state for the alerts routes.
 pub type AlertsState = Arc<FeeRepository>;
@@ -29,12 +31,18 @@ pub type AlertsState = Arc<FeeRepository>;
 pub struct CreateAlertRequest {
     pub webhook_url: String,
     pub threshold: Option<String>,
+    /// One of `spike | recovery | good_window | stale_data`. Defaults to
+    /// `spike` when omitted (Issue #556).
+    pub alert_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateAlertRequest {
     pub threshold: Option<String>,
     pub enabled: Option<bool>,
+    /// One of `spike | recovery | good_window | stale_data`. Leaves the
+    /// existing alert_type unchanged when omitted (Issue #556).
+    pub alert_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,6 +54,10 @@ pub struct CreateAlertResponse {
 
 fn is_valid_threshold(t: &str) -> bool {
     VALID_THRESHOLDS.contains(&t)
+}
+
+fn is_valid_alert_type(t: &str) -> bool {
+    VALID_ALERT_TYPES.contains(&t)
 }
 
 /// Validate that a webhook URL is safe to call:
@@ -115,6 +127,7 @@ pub async fn create_alert(
     Json(body): Json<CreateAlertRequest>,
 ) -> Result<(StatusCode, Json<CreateAlertResponse>), (StatusCode, Json<serde_json::Value>)> {
     let threshold = body.threshold.as_deref().unwrap_or("Major");
+    let alert_type = body.alert_type.as_deref().unwrap_or("spike");
 
     if !is_valid_threshold(threshold) {
         return Err((
@@ -124,6 +137,19 @@ pub async fn create_alert(
                     "Invalid threshold '{}'. Must be one of: {}",
                     threshold,
                     VALID_THRESHOLDS.join(", ")
+                )
+            })),
+        ));
+    }
+
+    if !is_valid_alert_type(alert_type) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!(
+                    "Invalid alert_type '{}'. Must be one of: {}",
+                    alert_type,
+                    VALID_ALERT_TYPES.join(", ")
                 )
             })),
         ));
@@ -139,7 +165,7 @@ pub async fn create_alert(
     }
 
     let id = repo
-        .insert_alert_config(&body.webhook_url, threshold)
+        .insert_alert_config_typed(&body.webhook_url, threshold, alert_type)
         .await
         .map_err(|e| {
             (
@@ -188,6 +214,7 @@ pub async fn update_alert(
 
     let threshold = body.threshold.as_deref().unwrap_or(&current.threshold);
     let enabled = body.enabled.unwrap_or(current.enabled);
+    let alert_type = body.alert_type.as_deref().unwrap_or(&current.alert_type);
 
     if !is_valid_threshold(threshold) {
         return Err((
@@ -202,8 +229,21 @@ pub async fn update_alert(
         ));
     }
 
+    if !is_valid_alert_type(alert_type) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!(
+                    "Invalid alert_type '{}'. Must be one of: {}",
+                    alert_type,
+                    VALID_ALERT_TYPES.join(", ")
+                )
+            })),
+        ));
+    }
+
     let updated = repo
-        .update_alert_config(id, threshold, enabled)
+        .update_alert_config_full(id, threshold, enabled, alert_type)
         .await
         .map_err(|e| {
             (
@@ -251,6 +291,8 @@ pub struct AlertHistoryQuery {
     pub limit: Option<i64>,
     pub severity: Option<String>,
     pub delivered: Option<bool>,
+    /// Filter by alert_type: spike | recovery | good_window | stale_data.
+    pub alert_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -272,6 +314,7 @@ pub async fn get_alert_history(
     let limit = params.limit.unwrap_or(20).clamp(1, 100);
     let severity = params.severity.as_deref();
     let delivered = params.delivered;
+    let alert_type = params.alert_type.as_deref();
 
     if let Some(sev) = severity {
         if !is_valid_threshold(sev) {
@@ -288,9 +331,24 @@ pub async fn get_alert_history(
         }
     }
 
+    if let Some(at) = alert_type {
+        if !is_valid_alert_type(at) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "Invalid alert_type '{}'. Must be one of: {}",
+                        at,
+                        VALID_ALERT_TYPES.join(", ")
+                    )
+                })),
+            ));
+        }
+    }
+
     let (items, total) = tokio::try_join!(
-        repo.query_alert_history(limit, severity, delivered),
-        repo.count_alert_events(severity, delivered),
+        repo.query_alert_history_by_type(limit, severity, delivered, alert_type),
+        repo.count_alert_events_by_type(severity, delivered, alert_type),
     )
     .map_err(|e| {
         (
@@ -480,6 +538,82 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
+
+    // ---- Issue #556: alert_type on create/update ----
+
+    #[tokio::test]
+    async fn post_creates_alert_config_with_type() {
+        let app = make_app().await;
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/alerts/config")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"webhook_url":"https://example.com/hook","alert_type":"stale_data"}"#,
+            ))
+            .unwrap();
+
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let list_req = Request::builder()
+            .method(Method::GET)
+            .uri("/alerts/config")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(list_req).await.unwrap();
+        let json = body_json(resp.into_body()).await;
+        assert_eq!(json[0]["alert_type"], "stale_data");
+    }
+
+    #[tokio::test]
+    async fn post_invalid_alert_type_returns_400() {
+        let app = make_app().await;
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/alerts/config")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"webhook_url":"https://example.com/hook","alert_type":"made_up"}"#,
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn patch_updates_alert_type() {
+        let pool = create_pool("sqlite::memory:").await.unwrap();
+        let repo = Arc::new(FeeRepository::new(pool));
+        let id = repo
+            .insert_alert_config("https://example.com/hook", "Minor")
+            .await
+            .unwrap();
+
+        let app = Router::new()
+            .route("/alerts/config/:id", patch(update_alert))
+            .route("/alerts/config", get(list_alerts))
+            .with_state(repo);
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri(format!("/alerts/config/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"alert_type":"good_window"}"#))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let list_req = Request::builder()
+            .method(Method::GET)
+            .uri("/alerts/config")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(list_req).await.unwrap();
+        let json = body_json(resp.into_body()).await;
+        assert_eq!(json[0]["alert_type"], "good_window");
+    }
 }
 
 #[cfg(test)]
@@ -517,9 +651,14 @@ mod history_tests {
     }
 
     fn make_event(severity: &str, delivered: bool) -> AlertEvent {
+        make_typed_event("spike", severity, delivered)
+    }
+
+    fn make_typed_event(alert_type: &str, severity: &str, delivered: bool) -> AlertEvent {
         AlertEvent {
             id: None,
             config_id: None,
+            alert_type: alert_type.to_string(),
             severity: severity.to_string(),
             peak_fee: 8000,
             baseline_fee: 130.5,
@@ -527,6 +666,7 @@ mod history_tests {
             webhook_url: "https://hooks.example.com/test".to_string(),
             delivered,
             triggered_at: chrono::Utc::now().to_rfc3339(),
+            correlation_id: None,
         }
     }
 
@@ -627,6 +767,40 @@ mod history_tests {
         let req = Request::builder()
             .method(Method::GET)
             .uri("/alerts/history?severity=Catastrophic")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // ---- Issue #556: alert_type filter ----
+
+    #[tokio::test]
+    async fn history_filters_by_alert_type() {
+        let events = vec![
+            make_typed_event("spike", "Major", true),
+            make_typed_event("stale_data", "Major", true),
+            make_typed_event("good_window", "Major", true),
+        ];
+        let app = make_app_with_events(events).await;
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/alerts/history?alert_type=stale_data")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp.into_body()).await;
+        assert_eq!(json["total"], 1);
+        assert_eq!(json["items"][0]["alert_type"], "stale_data");
+    }
+
+    #[tokio::test]
+    async fn history_invalid_alert_type_returns_400() {
+        let app = make_app().await;
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/alerts/history?alert_type=made_up")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();

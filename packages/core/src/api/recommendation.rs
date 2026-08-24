@@ -29,6 +29,7 @@ pub async fn recommend(
     State(state): State<RecommendationState>,
     Json(body): Json<RecommendRequest>,
 ) -> Result<Json<RecommendResponse>, AppError> {
+    validate_recommend_request(&body).map_err(|(status, err_json)| {
     validate_recommend_request(&body).map_err(|(_status, err_json)| {
         AppError::Parse(
             err_json["error"]

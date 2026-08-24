@@ -454,6 +454,7 @@ pub async fn account_fee_history(
     }))
 }
 
+#[derive(Debug, Serialize)]
 #[derive(Serialize, Deserialize)]
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
