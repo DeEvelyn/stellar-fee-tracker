@@ -35,7 +35,7 @@ pub fn bollinger_bands(fees: &[f64], window: usize) -> Vec<BollingerPoint> {
     fees.iter()
         .enumerate()
         .map(|(i, _)| {
-            let start = if i + 1 >= window { i + 1 - window } else { 0 };
+            let start = i + 1_usize.saturating_sub(window);
             let slice = &fees[start..=i];
             let n = slice.len() as f64;
             let sma = slice.iter().sum::<f64>() / n;

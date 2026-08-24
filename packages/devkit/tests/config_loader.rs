@@ -58,8 +58,8 @@ fn test_load_partial_toml_uses_defaults_for_missing_fields() {
     "#;
 
     let file = write_temp_toml(content);
-    let config = DevkitConfig::from_toml_file(&file.path().to_path_buf())
-        .expect("Should load partial TOML");
+    let config =
+        DevkitConfig::from_toml_file(&file.path().to_path_buf()).expect("Should load partial TOML");
 
     assert_eq!(config.port, 7777);
     assert_eq!(config.scenario, "spike");
@@ -74,18 +74,12 @@ fn test_load_partial_toml_uses_defaults_for_missing_fields() {
     assert_eq!(config.base_retry_delay_ms, defaults.base_retry_delay_ms);
     assert_eq!(config.simulation_duration, defaults.simulation_duration);
     assert_eq!(config.simulation_base_fee, defaults.simulation_base_fee);
-    assert_eq!(
-        config.simulation_spike_prob,
-        defaults.simulation_spike_prob
-    );
+    assert_eq!(config.simulation_spike_prob, defaults.simulation_spike_prob);
     assert_eq!(
         config.sandbox_time_offset_secs,
         defaults.sandbox_time_offset_secs
     );
-    assert_eq!(
-        config.analysis_window_hours,
-        defaults.analysis_window_hours
-    );
+    assert_eq!(config.analysis_window_hours, defaults.analysis_window_hours);
 }
 
 #[test]
@@ -293,8 +287,8 @@ fn test_env_overrides_toml_values() {
         poll_interval_secs = 20
     "#;
     let file = write_temp_toml(content);
-    let mut config = DevkitConfig::from_toml_file(&file.path().to_path_buf())
-        .expect("Should parse TOML");
+    let mut config =
+        DevkitConfig::from_toml_file(&file.path().to_path_buf()).expect("Should parse TOML");
 
     // Assert TOML values are loaded
     assert_eq!(config.port, 7000);
@@ -322,8 +316,8 @@ fn test_env_not_set_does_not_change_toml_values() {
         horizon_url = "https://custom.horizon.org"
     "#;
     let file = write_temp_toml(content);
-    let mut config = DevkitConfig::from_toml_file(&file.path().to_path_buf())
-        .expect("Should parse TOML");
+    let mut config =
+        DevkitConfig::from_toml_file(&file.path().to_path_buf()).expect("Should parse TOML");
 
     // Ensure no stray env vars interfere
     std::env::remove_var("DEVKIT_PORT");

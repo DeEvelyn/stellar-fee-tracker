@@ -1,4 +1,3 @@
-use std::io::Write;
 use tempfile::NamedTempFile;
 
 use stellar_devkit::io::csv::CsvWriter;
@@ -13,8 +12,8 @@ fn test_csv_writer_creates_valid_file() {
             writer
                 .write_row(&stellar_devkit::io::csv::FeeRecord {
                     timestamp_ms: 1700000000000 + i * 6000,
-                    fee_stroops: 100 + i as u64,
-                    sequence: i as u64,
+                    fee_stroops: 100 + i,
+                    sequence: i,
                 })
                 .expect("Failed to write row");
         }

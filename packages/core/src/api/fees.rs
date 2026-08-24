@@ -413,9 +413,10 @@ pub async fn account_fee_history(
     State(state): State<FeesState>,
     axum::extract::Path(account_id): axum::extract::Path<String>,
 ) -> Result<Json<AccountFeeHistoryResponse>, AppError> {
-    let horizon = state.horizon_client.as_ref().ok_or_else(|| {
-        AppError::Config("Horizon client missing from fees state".to_string())
-    })?;
+    let horizon = state
+        .horizon_client
+        .as_ref()
+        .ok_or_else(|| AppError::Config("Horizon client missing from fees state".to_string()))?;
 
     let records = horizon.fetch_account_transactions(&account_id, 100).await?;
 
@@ -426,19 +427,19 @@ pub async fn account_fee_history(
         )));
     }
 
-    let total_fees: u64 = records.iter().map(|r| r.fee_charged).sum();
-    let min_fee = records.iter().map(|r| r.fee_charged).min().unwrap_or(0);
-    let max_fee = records.iter().map(|r| r.fee_charged).max().unwrap_or(0);
+    let total_fees: u64 = records.iter().map(|r| r.fee_amount).sum();
+    let min_fee = records.iter().map(|r| r.fee_amount).min().unwrap_or(0);
+    let max_fee = records.iter().map(|r| r.fee_amount).max().unwrap_or(0);
     let avg_fee = total_fees as f64 / records.len() as f64;
 
     let transactions: Vec<AccountTransactionEntry> = records
         .iter()
         .map(|r| AccountTransactionEntry {
-            hash: r.hash.clone(),
-            fee_charged: r.fee_charged,
-            ledger: r.ledger,
-            created_at: r.created_at.clone(),
-            successful: r.successful,
+            hash: r.transaction_hash.clone(),
+            fee_charged: r.fee_amount,
+            ledger: r.ledger_sequence,
+            created_at: r.timestamp.to_rfc3339(),
+            successful: true,
         })
         .collect();
 
@@ -451,6 +452,9 @@ pub async fn account_fee_history(
         max_fee,
         transactions,
     }))
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
     pub fee_amount: u64,
@@ -474,10 +478,7 @@ pub async fn transaction_fee_lookup(
             ledger_sequence: p.ledger_sequence,
             timestamp: p.timestamp,
         })),
-        None => Err(AppError::Parse(format!(
-            "Transaction not found: {}",
-            hash
-        ))),
+        None => Err(AppError::Parse(format!("Transaction not found: {}", hash))),
     }
 }
 

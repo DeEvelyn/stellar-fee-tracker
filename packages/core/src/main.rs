@@ -197,6 +197,8 @@ async fn main() {
         .route(
             "/fees/account/:account_id",
             get(api::fees::account_fee_history),
+        )
+        .route(
             "/fees/transaction/:hash",
             get(api::fees::transaction_fee_lookup),
         )
@@ -209,10 +211,8 @@ async fn main() {
         }));
 
     // Business routes that require optional API-key auth.
-    let recommendation_engine = FeeRecommendationEngine::new(
-        fee_store.clone(),
-        Some(insights_engine.clone()),
-    );
+    let recommendation_engine =
+        FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()));
     let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
         engine: recommendation_engine,
         metrics: Some(app_metrics.clone()),
@@ -355,4 +355,3 @@ async fn main() {
 
     tracing::info!("Application shut down cleanly");
 }
-

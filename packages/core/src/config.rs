@@ -20,6 +20,7 @@ pub struct Config {
     pub base_retry_delay_ms: u64,
     pub database_url: String,
     pub storage_retention_days: u64,
+    #[allow(dead_code)]
     pub recommendation: RecommendationConfig,
 }
 

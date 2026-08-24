@@ -13,7 +13,7 @@ fn test_simulate_to_csv_pipeline() {
     assert_eq!(fees.len(), 100, "Should generate 100 fee records");
 
     // Export to CSV
-    let mut csv_file = NamedTempFile::new().expect("Failed to create temp file");
+    let csv_file = NamedTempFile::new().expect("Failed to create temp file");
     let csv_path = csv_file.path().to_path_buf();
 
     stellar_devkit::utilities::csv_reader::write_csv_file(&fees, &csv_path)

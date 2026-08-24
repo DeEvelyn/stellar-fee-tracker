@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 
 use crate::error::AppError;
 use crate::metrics::AppMetrics;
@@ -32,8 +29,13 @@ pub async fn recommend(
     State(state): State<RecommendationState>,
     Json(body): Json<RecommendRequest>,
 ) -> Result<Json<RecommendResponse>, AppError> {
-    validate_recommend_request(&body).map_err(|(status, err_json)| {
-        AppError::Parse(err_json["error"].as_str().unwrap_or("Validation error").to_string())
+    validate_recommend_request(&body).map_err(|(_status, err_json)| {
+        AppError::Parse(
+            err_json["error"]
+                .as_str()
+                .unwrap_or("Validation error")
+                .to_string(),
+        )
     })?;
 
     let result = state.engine.recommend(&body).await?;
@@ -68,16 +70,28 @@ pub async fn get_recommend(
     let ratio = avg_fee as f64 / base_fee as f64;
 
     let percentile_value = |sorted: &[u64], pct: usize| -> u64 {
-        let idx = ((pct * sorted.len() + 99) / 100).min(sorted.len() - 1);
+        let idx = (pct * sorted.len()).div_ceil(100).min(sorted.len() - 1);
         sorted[idx]
     };
 
     let (congestion, basis, recommended_fee) = if ratio < 1.5 {
-        ("LOW".to_string(), "p20".to_string(), percentile_value(&sorted, 20))
+        (
+            "LOW".to_string(),
+            "p20".to_string(),
+            percentile_value(&sorted, 20),
+        )
     } else if ratio <= 3.0 {
-        ("MEDIUM".to_string(), "p50".to_string(), percentile_value(&sorted, 50))
+        (
+            "MEDIUM".to_string(),
+            "p50".to_string(),
+            percentile_value(&sorted, 50),
+        )
     } else {
-        ("HIGH".to_string(), "p70".to_string(), percentile_value(&sorted, 70))
+        (
+            "HIGH".to_string(),
+            "p70".to_string(),
+            percentile_value(&sorted, 70),
+        )
     };
 
     if let Some(metrics) = &state.metrics {
@@ -100,4 +114,3 @@ pub async fn recommend_history(
     let response = RecommendHistoryResponse { entries: vec![] };
     Ok(Json(response))
 }
-
