@@ -1,4 +1,5 @@
 mod alerts;
+mod analytics;
 mod api;
 mod cache;
 mod cli;

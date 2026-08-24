@@ -50,6 +50,19 @@ pub struct FeeAlternative {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendationExplanation {
+    pub short_window_pct: u8,
+    pub long_window_pct: u8,
+    pub short_window_size: String,
+    pub long_window_size: String,
+    pub short_window_median: u64,
+    pub long_window_median: u64,
+    pub percentile_shift: f64,
+    pub adjustment_applied: f64,
+    pub adjustment_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecommendResponse {
     pub recommended_fee: String,
     pub fee_in_stroops: u64,
@@ -59,6 +72,7 @@ pub struct RecommendResponse {
     pub alternatives: Vec<FeeAlternative>,
     pub cold_start: bool,
     pub data_quality: Option<DataQuality>,
+    pub explanation: Option<RecommendationExplanation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

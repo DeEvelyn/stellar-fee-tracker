@@ -3,6 +3,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use tokio::sync::RwLock;
 
+use crate::analytics::percentile::{percentile_nearest, percentile_shift};
+use crate::analytics::trend::{analyze_trend, TrendDirection};
 use crate::error::AppError;
 use crate::insights::{FeeDataPoint, FeeInsightsEngine, TrendIndicator};
 use crate::repository::{FeeRepository, Recommendation};
@@ -10,7 +12,8 @@ use crate::store::FeeHistoryStore;
 
 use super::cache::RecommendationCache;
 use super::types::{
-    FeeAlternative, RecommendRequest, RecommendResponse, RecommendationConfig, Urgency,
+    FeeAlternative, RecommendRequest, RecommendResponse, RecommendationConfig,
+    RecommendationExplanation, Urgency,
 };
 
 const MAX_TARGET_LEDGERS: u32 = 100;
@@ -97,11 +100,34 @@ impl FeeRecommendationEngine {
             s
         };
 
+        // Multi-window percentile comparison for network condition
+        let short_window_secs = (self.config.history_window_secs / 12).max(300);
+        let short_points: Vec<FeeDataPoint> =
+            fee_store.get_since(Utc::now() - chrono::Duration::seconds(short_window_secs as i64));
+        let short_fees: Vec<u64> = short_points.iter().map(|p| p.fee_amount).collect();
+        let short_sorted = {
+            let mut s = short_fees.clone();
+            s.sort_unstable();
+            s
+        };
+        drop(fee_store);
+
+        let (percentile, _label) = urgency_percentile(&urgency);
         let (percentile, basis_label) = urgency_percentile(&urgency);
         let base_fee = percentile_value(&sorted, percentile);
 
+        // Compute explanation using multi-window comparison
+        let explanation = self
+            .compute_explanation(&short_sorted, &sorted, percentile, short_window_secs)
+            .await;
+
         let max_fee = request.max_fee.as_ref().and_then(|s| s.parse::<u64>().ok());
 
+        // Apply multi-window adjustment instead of spike-based multiplier
+        let adjusted = match &explanation {
+            Some(exp) => self.multi_window_adjustment(base_fee, exp).await,
+            None => base_fee,
+        };
         let adjusted = base_fee;
 
         let final_fee = match max_fee {
@@ -128,6 +154,7 @@ impl FeeRecommendationEngine {
             alternatives,
             cold_start: false,
             data_quality: Some(data_quality),
+            explanation,
         };
 
         // Persist recommendation asynchronously — fire-and-forget.
@@ -222,6 +249,7 @@ impl FeeRecommendationEngine {
             alternatives,
             cold_start: true,
             data_quality: None,
+            explanation: None,
         })
     }
 
@@ -240,6 +268,98 @@ impl FeeRecommendationEngine {
         }
     }
 
+    async fn compute_explanation(
+        &self,
+        short_sorted: &[u64],
+        long_sorted: &[u64],
+        percentile: usize,
+        short_window_secs: u64,
+    ) -> Option<RecommendationExplanation> {
+        if short_sorted.is_empty() || long_sorted.is_empty() {
+            return None;
+        }
+
+        let shift = percentile_shift(short_sorted, long_sorted, percentile as u8)?;
+        let short_median = percentile_nearest(short_sorted, 50);
+        let long_median = percentile_nearest(long_sorted, 50);
+
+        // Determine adjustment multiplier and reason
+        let (adjustment, reason) = if shift > 30.0 {
+            (
+                1.25,
+                format!(
+                    "Short-term fees {}% above long-term baseline — network heating up",
+                    shift.round()
+                ),
+            )
+        } else if shift > 10.0 {
+            (
+                1.10,
+                format!(
+                    "Short-term fees {}% above long-term baseline — moderate pressure",
+                    shift.round()
+                ),
+            )
+        } else if shift < -15.0 {
+            (
+                0.92,
+                format!(
+                    "Short-term fees {}% below long-term baseline — fees cooling down",
+                    shift.abs().round()
+                ),
+            )
+        } else {
+            (
+                1.0,
+                format!(
+                    "Short-term fees within normal range of long-term baseline ({:+.0}%)",
+                    shift
+                ),
+            )
+        };
+
+        // Also check trend direction for extra context
+        let short_fees_f64: Vec<f64> = short_sorted.iter().map(|&f| f as f64).collect();
+        let trend = analyze_trend(&short_fees_f64);
+
+        let final_reason = match trend.direction {
+            TrendDirection::Upward if trend.r_squared > 0.6 => {
+                format!(
+                    "{}; short-term trend is upward (slope={:.2}, R²={:.2})",
+                    reason, trend.slope, trend.r_squared
+                )
+            }
+            TrendDirection::Downward if trend.r_squared > 0.6 => {
+                format!(
+                    "{}; short-term trend is downward (slope={:.2}, R²={:.2})",
+                    reason, trend.slope, trend.r_squared
+                )
+            }
+            _ => reason,
+        };
+
+        Some(RecommendationExplanation {
+            short_window_pct: percentile as u8,
+            long_window_pct: percentile as u8,
+            short_window_size: format!("{}s", short_window_secs),
+            long_window_size: format!("{}s", self.config.history_window_secs),
+            short_window_median: short_median,
+            long_window_median: long_median,
+            percentile_shift: shift,
+            adjustment_applied: adjustment,
+            adjustment_reason: final_reason,
+        })
+    }
+
+    async fn multi_window_adjustment(
+        &self,
+        base_fee: u64,
+        explanation: &RecommendationExplanation,
+    ) -> u64 {
+        (base_fee as f64 * explanation.adjustment_applied) as u64
+    }
+
+    #[allow(dead_code)]
     async fn network_condition_adjustment(&self, base_fee: u64) -> u64 {
         let condition = self.detect_network_condition().await;
         match condition.as_str() {
@@ -744,6 +864,182 @@ mod tests {
         assert!(
             r1.fee_in_stroops >= r10.fee_in_stroops,
             "immediate should recommend higher fee than long wait"
+        );
+    }
+
+    async fn make_store_with_fees(fees: Vec<(i64, u64)>) -> Arc<RwLock<FeeHistoryStore>> {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let base = Utc::now() - chrono::Duration::minutes(50);
+        {
+            let mut store_w = store.write().await;
+            for (minute_offset, fee) in fees {
+                store_w.push(FeeDataPoint {
+                    fee_amount: fee,
+                    timestamp: base + chrono::Duration::minutes(minute_offset),
+                    transaction_hash: format!("tx_{}", minute_offset),
+                    ledger_sequence: 100 + minute_offset as u64,
+                });
+            }
+        }
+        store
+    }
+
+    #[tokio::test]
+    async fn regression_rising_fees_higher_adjustment() {
+        // Long window: stable at 100, short window: rising to 200+
+        let mut fees = Vec::new();
+        for i in 0..30 {
+            fees.push((i, 100));
+        }
+        for i in 30..50 {
+            fees.push((i, 200));
+        }
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(!result.cold_start);
+        let exp = result.explanation.unwrap();
+        assert!(
+            exp.adjustment_applied > 1.0,
+            "rising fees should increase adjustment: {}",
+            exp.adjustment_applied
+        );
+        assert!(exp.adjustment_reason.contains("above"));
+    }
+
+    #[tokio::test]
+    async fn regression_falling_fees_lower_adjustment() {
+        // Long window: stable at 200, short window: dropping to 100
+        let mut fees = Vec::new();
+        for i in 0..30 {
+            fees.push((i, 200));
+        }
+        for i in 30..50 {
+            fees.push((i, 100));
+        }
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(!result.cold_start);
+        let exp = result.explanation.unwrap();
+        assert!(
+            exp.adjustment_applied < 1.0,
+            "falling fees should decrease adjustment: {}",
+            exp.adjustment_applied
+        );
+        assert!(exp.adjustment_reason.contains("below"));
+    }
+
+    #[tokio::test]
+    async fn regression_stable_fees_no_adjustment() {
+        // All fees same — no shift
+        let fees: Vec<(i64, u64)> = (0..50).map(|i| (i, 150)).collect();
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        let exp = result.explanation.unwrap();
+        assert_eq!(
+            exp.adjustment_applied, 1.0,
+            "stable fees should have no adjustment"
+        );
+    }
+
+    #[tokio::test]
+    async fn regression_cold_start_no_explanation() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let config = RecommendationConfig {
+            min_sample_count: 50,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(result.cold_start);
+        assert!(result.explanation.is_none());
+    }
+
+    #[tokio::test]
+    async fn regression_explanation_matches_numeric_fields() {
+        let mut fees = Vec::new();
+        for i in 0..30 {
+            fees.push((i, 100));
+        }
+        for i in 30..50 {
+            fees.push((i, 180));
+        }
+        let store = make_store_with_fees(fees).await;
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        let exp = result.explanation.unwrap();
+        // Verify explanation is internally consistent:
+        // 1. percentile_shift positive means short > long, adjustment > 1.0
+        // 2. percentile_shift negative means short < long, adjustment < 1.0
+        // 3. percentile_shift zero means no change, adjustment == 1.0
+        if exp.percentile_shift > 0.0 {
+            assert!(
+                exp.adjustment_applied > 1.0,
+                "positive shift should yield adjustment > 1.0: shift={}, adj={}",
+                exp.percentile_shift,
+                exp.adjustment_applied
+            );
+        } else if exp.percentile_shift < 0.0 {
+            assert!(
+                exp.adjustment_applied < 1.0,
+                "negative shift should yield adjustment < 1.0: shift={}, adj={}",
+                exp.percentile_shift,
+                exp.adjustment_applied
+            );
+        } else {
+            assert_eq!(exp.adjustment_applied, 1.0);
+        }
+        // short/base stats should be populated
+        assert!(
+            exp.short_window_median > 0,
+            "short_window_median should be populated"
+        );
+        assert!(
+            exp.long_window_median > 0,
+            "long_window_median should be populated"
         );
     }
 }
