@@ -5,17 +5,21 @@ use tokio::sync::RwLock;
 
 use crate::error::AppError;
 use crate::insights::{FeeDataPoint, FeeInsightsEngine, TrendIndicator};
+use crate::repository::{FeeRepository, Recommendation};
 use crate::store::FeeHistoryStore;
 
 use super::cache::RecommendationCache;
-use super::types::{FeeAlternative, RecommendRequest, RecommendResponse, Urgency};
+use super::types::{
+    FeeAlternative, RecommendRequest, RecommendResponse, RecommendationConfig, Urgency,
+};
 
-const DEFAULT_TARGET_LEDGERS: u32 = 1;
 const MAX_TARGET_LEDGERS: u32 = 100;
 
 pub struct FeeRecommendationEngine {
     fee_store: Arc<RwLock<FeeHistoryStore>>,
     insights_engine: Option<Arc<RwLock<FeeInsightsEngine>>>,
+    repository: Option<Arc<FeeRepository>>,
+    config: RecommendationConfig,
     cache: RwLock<RecommendationCache>,
 }
 
@@ -23,18 +27,29 @@ impl FeeRecommendationEngine {
     pub fn new(
         fee_store: Arc<RwLock<FeeHistoryStore>>,
         insights_engine: Option<Arc<RwLock<FeeInsightsEngine>>>,
+        config: RecommendationConfig,
     ) -> Self {
         Self {
             fee_store,
             insights_engine,
+            repository: None,
+            config,
             cache: RwLock::new(RecommendationCache::new(10)),
         }
     }
 
-    pub async fn recommend(&self, request: &RecommendRequest) -> Result<RecommendResponse, AppError> {
+    pub fn with_repository(mut self, repository: Arc<FeeRepository>) -> Self {
+        self.repository = Some(repository);
+        self
+    }
+
+    pub async fn recommend(
+        &self,
+        request: &RecommendRequest,
+    ) -> Result<RecommendResponse, AppError> {
         let target_ledgers = request
             .target_ledgers
-            .unwrap_or(DEFAULT_TARGET_LEDGERS)
+            .unwrap_or(self.config.default_ledgers as u32)
             .clamp(1, MAX_TARGET_LEDGERS);
 
         let urgency = request.urgency.clone().unwrap_or(Urgency::Medium);
@@ -55,10 +70,19 @@ impl FeeRecommendationEngine {
         }
 
         let fee_store = self.fee_store.read().await;
-        let recent_points: Vec<FeeDataPoint> = fee_store.get_since(Utc::now() - chrono::Duration::hours(1));
+        let recent_points: Vec<FeeDataPoint> = fee_store.get_since(
+            Utc::now() - chrono::Duration::seconds(self.config.history_window_secs as i64),
+        );
+        let sample_count = recent_points.len();
 
-        if recent_points.is_empty() {
-            return self.fallback_recommendation(target_ledgers, &urgency).await;
+        // Cold-start check: trigger fallback when below min_sample_count (not just empty)
+        if sample_count < self.config.min_sample_count {
+            let result = self
+                .fallback_recommendation(target_ledgers, &urgency)
+                .await?;
+            let mut cache = self.cache.write().await;
+            cache.set(cache_key, result.clone());
+            return Ok(result);
         }
 
         let fees: Vec<u64> = recent_points.iter().map(|p| p.fee_amount).collect();
@@ -71,10 +95,7 @@ impl FeeRecommendationEngine {
         let (percentile, _label) = urgency_percentile(&urgency);
         let base_fee = percentile_value(&sorted, percentile);
 
-        let max_fee = request
-            .max_fee
-            .as_ref()
-            .and_then(|s| s.parse::<u64>().ok());
+        let max_fee = request.max_fee.as_ref().and_then(|s| s.parse::<u64>().ok());
 
         let adjusted = self.network_condition_adjustment(base_fee).await;
 
@@ -91,6 +112,8 @@ impl FeeRecommendationEngine {
 
         let alternatives = self.generate_alternatives(&sorted).await;
 
+        let data_quality = self.get_data_quality().await;
+
         let result = RecommendResponse {
             recommended_fee: final_fee.to_string(),
             fee_in_stroops: final_fee,
@@ -98,7 +121,31 @@ impl FeeRecommendationEngine {
             confidence,
             network_condition: network_condition.clone(),
             alternatives,
+            cold_start: false,
+            data_quality: Some(data_quality),
         };
+
+        // Persist recommendation asynchronously — fire-and-forget.
+        if let Some(repo) = &self.repository {
+            let rec = Recommendation {
+                id: None,
+                recommended_fee: final_fee as i64,
+                confidence,
+                target_ledgers: target_ledgers as i64,
+                network_condition: network_condition.clone(),
+                percentile_basis: urgency_to_label(&urgency).to_string(),
+                input_confidence: self.config.default_confidence,
+                input_ledgers: self.config.default_ledgers as i64,
+                sample_count: sample_count as i64,
+                computed_at: Utc::now().to_rfc3339(),
+            };
+            let repo = repo.clone();
+            tokio::spawn(async move {
+                if let Err(err) = repo.insert_recommendation(&rec).await {
+                    tracing::warn!("Failed to persist recommendation: {}", err);
+                }
+            });
+        }
 
         let mut cache = self.cache.write().await;
         cache.set(cache_key, result.clone());
@@ -106,12 +153,14 @@ impl FeeRecommendationEngine {
         Ok(result)
     }
 
+    #[allow(dead_code)]
     pub fn invalidate_cache(&self) {
         if let Ok(mut cache) = self.cache.try_write() {
             cache.invalidate_all();
         }
     }
 
+    #[allow(dead_code)]
     pub async fn get_last_n_fees(&self, n: usize) -> Vec<FeeDataPoint> {
         self.fee_store.read().await.get_last_n(n)
     }
@@ -150,7 +199,24 @@ impl FeeRecommendationEngine {
             confidence: 0.85,
             network_condition: "unknown".to_string(),
             alternatives,
+            cold_start: true,
+            data_quality: None,
         })
+    }
+
+    async fn get_data_quality(&self) -> crate::insights::types::DataQuality {
+        match &self.insights_engine {
+            Some(engine) => {
+                let engine = engine.read().await;
+                engine.get_current_insights().data_quality
+            }
+            None => crate::insights::types::DataQuality {
+                completeness: 0.0,
+                freshness: chrono::Duration::seconds(0),
+                has_gaps: true,
+                last_gap: None,
+            },
+        }
     }
 
     async fn network_condition_adjustment(&self, base_fee: u64) -> u64 {
@@ -242,10 +308,7 @@ impl FeeRecommendationEngine {
         }
     }
 
-    async fn generate_alternatives(
-        &self,
-        sorted_fees: &[u64],
-    ) -> Vec<FeeAlternative> {
+    async fn generate_alternatives(&self, sorted_fees: &[u64]) -> Vec<FeeAlternative> {
         let tiers = [
             ("economy", 0.70, 5u8),
             ("standard", 0.90, 2u8),
@@ -308,12 +371,8 @@ fn percentile_value(sorted: &[u64], percentile: usize) -> u64 {
     sorted[rank - 1]
 }
 
-fn find_fee_for_target_ledgers(
-    fees: &[u64],
-    target_ledgers: u32,
-    p50: u64,
-    p99: u64,
-) -> u64 {
+#[allow(dead_code)]
+fn find_fee_for_target_ledgers(fees: &[u64], target_ledgers: u32, p50: u64, p99: u64) -> u64 {
     if fees.is_empty() {
         return 100;
     }
@@ -396,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn network_condition_adjustment_normal() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let adjusted = engine.network_condition_adjustment(200).await;
         assert_eq!(adjusted, 200);
     }
@@ -404,7 +463,7 @@ mod tests {
     #[tokio::test]
     async fn estimate_inclusion_probability_returns_high_for_sufficient_fee() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let fees = sorted_fees();
         let prob = engine.estimate_inclusion_probability(500, &fees, 1).await;
         assert!(prob > 0.5);
@@ -413,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn estimate_inclusion_probability_returns_low_for_insufficient_fee() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let fees = sorted_fees();
         let prob = engine.estimate_inclusion_probability(50, &fees, 1).await;
         assert!(prob <= 0.6);
@@ -422,7 +481,7 @@ mod tests {
     #[tokio::test]
     async fn estimate_inclusion_probability_multi_ledger() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let fees = sorted_fees();
         let p1 = engine.estimate_inclusion_probability(200, &fees, 1).await;
         let p5 = engine.estimate_inclusion_probability(200, &fees, 5).await;
@@ -432,7 +491,7 @@ mod tests {
     #[tokio::test]
     async fn generate_alternatives_returns_three_tiers() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let fees = sorted_fees();
         let alternatives = engine.generate_alternatives(&fees).await;
         assert_eq!(alternatives.len(), 3);
@@ -444,17 +503,17 @@ mod tests {
     #[tokio::test]
     async fn find_fee_for_confidence_returns_reasonable_value() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let fees = sorted_fees();
         let (fee, conf) = engine.find_fee_for_confidence(&fees, 0.9, 2).await;
         assert!(fee >= 100);
-        assert!(conf >= 0.0 && conf <= 1.0);
+        assert!((0.0..=1.0).contains(&conf));
     }
 
     #[tokio::test]
     async fn fallback_recommendation_returns_reasonable_values() {
         let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
-        let engine = FeeRecommendationEngine::new(store, None);
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
         let result = engine
             .fallback_recommendation(1, &Urgency::Medium)
             .await
@@ -462,5 +521,155 @@ mod tests {
         assert_eq!(result.fee_in_stroops, 500);
         assert_eq!(result.alternatives.len(), 2);
     }
-}
 
+    #[tokio::test]
+    async fn cold_start_below_min_sample_count_triggers_fallback() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::minutes(55);
+        for i in 0..10u64 {
+            store_w.push(FeeDataPoint {
+                fee_amount: 100 + i * 10,
+                timestamp: base + chrono::Duration::minutes(i as i64 * 5),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i,
+            });
+        }
+        drop(store_w);
+
+        let config = RecommendationConfig {
+            min_sample_count: 50,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(result.cold_start, "should be cold start with < 50 samples");
+        assert_eq!(result.fee_in_stroops, 500);
+    }
+
+    #[tokio::test]
+    async fn not_cold_start_at_exact_min_sample_count() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::minutes(55);
+        for i in 0..50u64 {
+            store_w.push(FeeDataPoint {
+                fee_amount: 100 + (i % 10) * 10,
+                timestamp: base + chrono::Duration::minutes(i as i64),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i,
+            });
+        }
+        drop(store_w);
+
+        let config = RecommendationConfig {
+            min_sample_count: 50,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(
+            !result.cold_start,
+            "should NOT be cold start with exactly 50 samples"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_min_sample_count_changes_threshold() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::minutes(55);
+        for i in 0..15u64 {
+            store_w.push(FeeDataPoint {
+                fee_amount: 100 + i * 10,
+                timestamp: base + chrono::Duration::minutes(i as i64 * 3),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i,
+            });
+        }
+        drop(store_w);
+
+        let config = RecommendationConfig {
+            min_sample_count: 10,
+            ..Default::default()
+        };
+        let engine = FeeRecommendationEngine::new(store, None, config);
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(
+            !result.cold_start,
+            "should NOT be cold start when min_sample_count=10 and we have 15"
+        );
+    }
+
+    #[tokio::test]
+    async fn all_identical_fees_does_not_panic() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::minutes(55);
+        for i in 0..50u64 {
+            store_w.push(FeeDataPoint {
+                fee_amount: 200,
+                timestamp: base + chrono::Duration::minutes(i as i64),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i,
+            });
+        }
+        drop(store_w);
+
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(!result.cold_start);
+        assert!(result.confidence >= 0.0 && result.confidence <= 1.0);
+    }
+
+    #[tokio::test]
+    async fn data_quality_surfaced_in_warm_response() {
+        let store = Arc::new(RwLock::new(FeeHistoryStore::new(100)));
+        let mut store_w = store.write().await;
+        let base = Utc::now() - chrono::Duration::minutes(55);
+        for i in 0..50u64 {
+            store_w.push(FeeDataPoint {
+                fee_amount: 100 + (i % 10) * 10,
+                timestamp: base + chrono::Duration::minutes(i as i64),
+                transaction_hash: format!("tx_{}", i),
+                ledger_sequence: 100 + i,
+            });
+        }
+        drop(store_w);
+
+        let engine = FeeRecommendationEngine::new(store, None, RecommendationConfig::default());
+        let req = RecommendRequest {
+            target_ledgers: Some(2),
+            urgency: Some(Urgency::Medium),
+            max_fee: None,
+        };
+        let result = engine.recommend(&req).await.unwrap();
+        assert!(!result.cold_start);
+        assert!(result.data_quality.is_some());
+        let dq = result.data_quality.unwrap();
+        assert_eq!(
+            dq.completeness, 0.0,
+            "no insights engine means zero completeness"
+        );
+    }
+}

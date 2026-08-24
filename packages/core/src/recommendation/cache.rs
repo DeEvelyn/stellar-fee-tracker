@@ -43,10 +43,12 @@ impl RecommendationCache {
         );
     }
 
+    #[allow(dead_code)]
     pub fn invalidate(&mut self, key: &CacheKey) {
         self.entries.remove(key);
     }
 
+    #[allow(dead_code)]
     pub fn invalidate_all(&mut self) {
         self.entries.clear();
     }
@@ -65,6 +67,8 @@ mod tests {
             confidence: 0.95,
             network_condition: "normal".to_string(),
             alternatives: vec![],
+            cold_start: false,
+            data_quality: None,
         }
     }
 
@@ -112,7 +116,10 @@ mod tests {
     fn invalidate_all_clears_entries() {
         let mut cache = RecommendationCache::new(10);
         cache.set(make_key(), make_response());
-        cache.set((1, "fast".to_string(), "rising".to_string()), make_response());
+        cache.set(
+            (1, "fast".to_string(), "rising".to_string()),
+            make_response(),
+        );
         cache.invalidate_all();
         assert!(cache.get(&make_key()).is_none());
     }

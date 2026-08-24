@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn normal_network_fees_in_range() {
         for (_, fee) in normal_network() {
-            assert!(fee >= 100 && fee <= 500, "fee out of range: {fee}");
+            assert!((100..=500).contains(&fee), "fee out of range: {fee}");
         }
     }
 
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn congested_network_fees_in_range() {
         for (_, fee) in congested_network() {
-            assert!(fee >= 10_000 && fee <= 80_000, "fee out of range: {fee}");
+            assert!((10_000..=80_000).contains(&fee), "fee out of range: {fee}");
         }
     }
 

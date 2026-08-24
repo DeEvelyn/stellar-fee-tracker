@@ -46,9 +46,7 @@ fn json_to_points(json: &str) -> Result<Vec<FeePoint>, String> {
                 .ok_or_else(|| format!("missing field {field} in {obj}"))?
                 + key.len();
             let rest = &obj[start..];
-            let end = rest
-                .find(|c: char| c == ',' || c == '}')
-                .unwrap_or(rest.len());
+            let end = rest.find([',', '}']).unwrap_or(rest.len());
             Ok(rest[..end].trim().trim_matches('"'))
         };
         let timestamp = get_field("timestamp")?

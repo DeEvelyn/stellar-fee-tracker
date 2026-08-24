@@ -461,6 +461,7 @@ impl FeeRepository {
     }
 
     /// Return fee amounts from `fee_data_points` with timestamp >= `since`, sorted ascending.
+    #[allow(dead_code)]
     pub async fn get_fees_since(&self, since: DateTime<Utc>) -> Result<Vec<u64>, sqlx::Error> {
         let since_str = since.to_rfc3339();
 
@@ -475,9 +476,7 @@ impl FeeRepository {
             .into_iter()
             .filter_map(|row| {
                 use sqlx::Row;
-                row.try_get::<i64, _>("fee_amount")
-                    .map(|v| v as u64)
-                    .ok()
+                row.try_get::<i64, _>("fee_amount").map(|v| v as u64).ok()
             })
             .collect();
 

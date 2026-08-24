@@ -104,20 +104,12 @@ impl BuildInfo {
 }
 
 /// Arguments for the `version` subcommand.
+#[derive(Default)]
 pub struct VersionArgs {
     /// Output as JSON instead of plain text.
     pub json: bool,
     /// Check if the current version is newer than this version string.
     pub check: Option<String>,
-}
-
-impl Default for VersionArgs {
-    fn default() -> Self {
-        Self {
-            json: false,
-            check: None,
-        }
-    }
 }
 
 impl VersionArgs {

@@ -197,6 +197,8 @@ async fn main() {
         .route(
             "/fees/account/:account_id",
             get(api::fees::account_fee_history),
+        )
+        .route(
             "/fees/transaction/:hash",
             get(api::fees::transaction_fee_lookup),
         )
@@ -212,10 +214,13 @@ async fn main() {
     let recommendation_engine = FeeRecommendationEngine::new(
         fee_store.clone(),
         Some(insights_engine.clone()),
-    );
+        config.recommendation.clone(),
+    )
+    .with_repository(repository.clone());
     let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
         engine: recommendation_engine,
         metrics: Some(app_metrics.clone()),
+        repository: repository.clone(),
     });
     let recommendation_router = Router::new()
         .route(
@@ -355,4 +360,3 @@ async fn main() {
 
     tracing::info!("Application shut down cleanly");
 }
-
