@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct RecommendationConfig {
     pub default_confidence: f64,
     pub default_ledgers: u8,
