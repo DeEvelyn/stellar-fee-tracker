@@ -62,6 +62,14 @@ impl FeeHistoryStore {
         self.data.iter().skip(skip).cloned().collect()
     }
 
+    /// Return the first data point matching the given transaction hash, if any.
+    pub fn get_by_hash(&self, hash: &str) -> Option<FeeDataPoint> {
+        self.data
+            .iter()
+            .find(|p| p.transaction_hash == hash)
+            .cloned()
+    }
+
     /// Number of data points currently held.
     pub fn len(&self) -> usize {
         self.data.len()

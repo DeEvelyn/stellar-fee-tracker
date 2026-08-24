@@ -143,9 +143,11 @@ async fn main() {
         config.webhook_url.clone(),
         config.alert_threshold.clone(),
         config.stellar_network.as_str().to_string(),
+        Some(repository.clone()),
         enabled_alert_types,
         config.stale_data_threshold_seconds,
     ));
+    alert_manager.rehydrate_seen_spikes().await;
     let rate_limit_state = Arc::new(RateLimitState::new(config.rate_limit_per_minute));
 
     // ---- CORS policy ----
@@ -220,10 +222,13 @@ async fn main() {
 
     // Business routes that require optional API-key auth.
     let recommendation_engine =
+        FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()))
+            .with_repository(repository.clone());
         FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()));
     let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
         engine: recommendation_engine,
         metrics: Some(app_metrics.clone()),
+        repository: Some(repository.clone()),
     });
     let recommendation_router = Router::new()
         .route(
