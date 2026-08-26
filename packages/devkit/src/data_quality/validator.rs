@@ -246,13 +246,74 @@ mod tests {
 
     #[test]
     fn outlier_detected() {
-        let mut data = clean();
-        data.push(FeePoint {
-            timestamp: 50,
-            fee: 100_000,
-            ledger: 4,
-            is_spike: true,
-        });
+        let data = vec![
+            FeePoint {
+                timestamp: 0,
+                fee: 95,
+                ledger: 1,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 5,
+                fee: 98,
+                ledger: 2,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 10,
+                fee: 100,
+                ledger: 3,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 15,
+                fee: 102,
+                ledger: 4,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 20,
+                fee: 103,
+                ledger: 5,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 25,
+                fee: 105,
+                ledger: 6,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 30,
+                fee: 107,
+                ledger: 7,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 35,
+                fee: 108,
+                ledger: 8,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 40,
+                fee: 110,
+                ledger: 9,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 45,
+                fee: 112,
+                ledger: 10,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 50,
+                fee: 500,
+                ledger: 11,
+                is_spike: true,
+            },
+        ];
         let r = Validator::run(&data);
         assert!(r
             .findings
