@@ -125,7 +125,7 @@ fn score_always_clamped_to_unit_range() {
     };
     let score = congestion_score(&extreme);
     assert!(
-        score >= 0.0 && score <= 1.0,
+        (0.0..=1.0).contains(&score),
         "score out of range: {}",
         score
     );

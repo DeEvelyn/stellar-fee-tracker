@@ -1,7 +1,14 @@
 use std::env;
+use std::sync::{Mutex, OnceLock};
+
+fn env_mutex() -> &'static Mutex<()> {
+    static INSTANCE: OnceLock<Mutex<()>> = OnceLock::new();
+    INSTANCE.get_or_init(|| Mutex::new(()))
+}
 
 #[test]
 fn test_config_loading_with_env_vars() {
+    let _guard = env_mutex().lock().unwrap();
     env::set_var("STELLAR_NETWORK", "testnet");
     env::set_var("HORIZON_URL", "https://horizon-testnet.stellar.org");
     env::set_var("POLL_INTERVAL_SECS", "30");
@@ -29,6 +36,7 @@ fn test_config_loading_with_env_vars() {
 
 #[test]
 fn test_config_defaults_when_env_unset() {
+    let _guard = env_mutex().lock().unwrap();
     env::remove_var("STELLAR_NETWORK");
     env::remove_var("HORIZON_URL");
     env::remove_var("POLL_INTERVAL_SECS");

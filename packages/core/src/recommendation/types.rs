@@ -1,6 +1,5 @@
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Debug, Clone)]
 pub struct RecommendationConfig {
     pub default_confidence: f64,
     pub default_ledgers: u8,
@@ -14,9 +13,9 @@ impl Default for RecommendationConfig {
         Self {
             default_confidence: 0.95,
             default_ledgers: 2,
-            history_window_secs: 3600,
+            history_window_secs: 10800,
             cache_ttl_secs: 10,
-            min_sample_count: 50,
+            min_sample_count: 10,
         }
     }
 }
