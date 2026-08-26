@@ -259,7 +259,43 @@ impl Repair {
                         }
                     }
                 }
-                _ => {}
+                RepairAction::InterpolateGap { from, to, count } => {
+                    let from_ledger = *from;
+                    let to_ledger = *to;
+                    let gap_count = *count;
+                    if gap_count == 0 {
+                        continue;
+                    }
+                    let from_idx = cleaned.iter().position(|p| p.ledger == from_ledger);
+                    let to_idx = cleaned.iter().position(|p| p.ledger == to_ledger);
+                    if let (Some(fi), Some(ti)) = (from_idx, to_idx) {
+                        let from_fee = cleaned[fi].fee;
+                        let to_fee = cleaned[ti].fee;
+                        let from_ts = cleaned[fi].timestamp;
+                        let to_ts = cleaned[ti].timestamp;
+                        let fee_step = (to_fee as f64 - from_fee as f64) / (gap_count + 1) as f64;
+                        let ts_step = (to_ts.saturating_sub(from_ts)) / (gap_count + 1);
+                        let existing_ledgers: BTreeSet<u64> =
+                            cleaned.iter().map(|p| p.ledger).collect();
+                        let mut new_points: Vec<FeePoint> = (1..=gap_count)
+                            .filter(|j| !existing_ledgers.contains(&(from_ledger + j)))
+                            .map(|j| FeePoint {
+                                timestamp: from_ts.saturating_add(ts_step * j),
+                                fee: (from_fee as f64 + fee_step * j as f64).round() as u64,
+                                ledger: from_ledger + j,
+                                is_spike: false,
+                            })
+                            .collect();
+                        for np in new_points.drain(..) {
+                            let insert_at = cleaned
+                                .iter()
+                                .position(|p| p.ledger > np.ledger)
+                                .unwrap_or(cleaned.len());
+                            cleaned.insert(insert_at, np);
+                        }
+                    }
+                }
+                RepairAction::Reorder | RepairAction::RemoveDuplicate(_) => {}
             }
         }
 
@@ -471,26 +507,68 @@ mod tests {
         let data = vec![
             FeePoint {
                 timestamp: 0,
-                fee: 100,
+                fee: 95,
                 ledger: 1,
                 is_spike: false,
             },
             FeePoint {
-                timestamp: 100,
-                fee: 110,
+                timestamp: 10,
+                fee: 98,
                 ledger: 2,
                 is_spike: false,
             },
             FeePoint {
-                timestamp: 200,
-                fee: 105,
+                timestamp: 20,
+                fee: 100,
                 ledger: 3,
                 is_spike: false,
             },
             FeePoint {
-                timestamp: 300,
-                fee: 10_000,
+                timestamp: 30,
+                fee: 102,
                 ledger: 4,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 40,
+                fee: 103,
+                ledger: 5,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 50,
+                fee: 105,
+                ledger: 6,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 60,
+                fee: 107,
+                ledger: 7,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 70,
+                fee: 108,
+                ledger: 8,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 80,
+                fee: 110,
+                ledger: 9,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 90,
+                fee: 112,
+                ledger: 10,
+                is_spike: false,
+            },
+            FeePoint {
+                timestamp: 100,
+                fee: 500,
+                ledger: 11,
                 is_spike: true,
             },
         ];
