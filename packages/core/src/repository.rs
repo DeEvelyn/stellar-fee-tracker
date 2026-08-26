@@ -354,6 +354,7 @@ impl FeeRepository {
     // ---- Alert config CRUD ----
 
     /// Insert a new alert webhook config. Returns the new row id.
+    #[allow(dead_code)]
     pub async fn insert_alert_config(
         &self,
         webhook_url: &str,
@@ -441,6 +442,7 @@ impl FeeRepository {
 
     /// Update threshold and/or enabled state for an alert config.
     /// Returns `true` if a row was updated, `false` if id not found.
+    #[allow(dead_code)]
     pub async fn update_alert_config(
         &self,
         id: i64,
@@ -625,6 +627,7 @@ impl FeeRepository {
     }
 
     /// Count alert events matching optional filters (for pagination totals).
+    #[allow(dead_code)]
     pub async fn count_alert_events(
         &self,
         severity_filter: Option<&str>,
