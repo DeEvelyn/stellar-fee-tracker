@@ -575,6 +575,33 @@ Benchmarks compile and run on every PR touching `packages/devkit/` via the [Devk
 stellar-devkit = { path = "../devkit" }
 ```
 
+## Protocol
+
+The `protocol` module provides typed access to Stellar Horizon fee stats.
+
+### HorizonFeeStats
+
+Parsed representation of `/fee_stats` response fields including base fee,
+ledger capacity usage, and percentile fee levels (p10–p99).
+
+### Client Usage
+
+```rust
+use stellar_devkit::protocol::HorizonClient;
+
+let client = HorizonClient::new("https://horizon-testnet.stellar.org".into());
+let stats = client.fetch_fee_stats().await?;
+```
+
+### Network Selector
+
+Switch between `Testnet` and `Mainnet` presets, or provide a custom URL.
+
+### Cache Config
+
+The `FeeStatsCache` wraps a client with configurable TTL (default 5 s) and
+exposes hit/miss counters.
+
 ## Fee Analytics
 
 The `analytics` module provides composable, zero-dependency fee analysis functions for trend detection, volatility measurement, correlation, forecasting, and regime change detection.

@@ -317,6 +317,8 @@ pub struct TrendChanges {
     pub five_m_pct: Option<f64>,
     #[serde(rename = "1h_pct")]
     pub one_h_pct: Option<f64>,
+    #[serde(rename = "6h_pct")]
+    pub six_h_pct: Option<f64>,
     #[serde(rename = "24h_pct")]
     pub twenty_four_h_pct: Option<f64>,
 }
@@ -348,6 +350,7 @@ pub async fn fee_trend(State(state): State<FeesState>) -> Result<Json<FeeTrendRe
     let changes = TrendChanges {
         five_m_pct: percent_change(averages.short_term.value, &averages.medium_term),
         one_h_pct: percent_change(averages.medium_term.value, &averages.long_term),
+        six_h_pct: percent_change(averages.medium_term.value, &averages.long_term),
         twenty_four_h_pct: None,
     };
 
@@ -455,9 +458,7 @@ pub async fn account_fee_history(
     }))
 }
 
-#[derive(serde::Serialize)]
-#[derive(Debug, Serialize)]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TransactionFeeResponse {
     pub transaction_hash: String,
     pub fee_amount: u64,
@@ -492,9 +493,11 @@ const DEFAULT_WAIT_WINDOW_SECS: u64 = 86_400;
 const RECENT_WINDOW_MINS: i64 = 5;
 
 /// Spike detection window (1 hour).
+#[allow(dead_code)]
 const SPIKE_WINDOW_MINS: i64 = 60;
 
 /// Spike threshold multiplier relative to the short-term median.
+#[allow(dead_code)]
 const SPIKE_THRESHOLD_MULTIPLIER: f64 = 2.0;
 
 #[derive(Debug, Deserialize)]
@@ -1082,11 +1085,13 @@ mod tests {
         let tc = TrendChanges {
             five_m_pct: Some(5.0),
             one_h_pct: Some(-2.0),
+            six_h_pct: None,
             twenty_four_h_pct: None,
         };
         let json = serde_json::to_value(&tc).unwrap();
         assert_eq!(json["5m_pct"], 5.0);
         assert_eq!(json["1h_pct"], -2.0);
+        assert!(json["6h_pct"].is_null());
         assert!(json["24h_pct"].is_null());
     }
 

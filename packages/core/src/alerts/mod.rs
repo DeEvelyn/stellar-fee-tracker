@@ -6,9 +6,8 @@ use std::sync::Arc;
 use chrono::Utc;
 use tokio::sync::Mutex;
 
-use crate::insights::{InsightsUpdate, SpikeSeverity};
-use crate::repository::{AlertEvent, FeeRepository};
 use crate::insights::{FeeSpike, InsightsUpdate, SpikeSeverity, TrendIndicator, TrendStrength};
+use crate::repository::{AlertEvent, FeeRepository};
 
 use self::webhook::{AlertPayload, WebhookDelivery};
 
@@ -44,6 +43,7 @@ pub struct AlertManager {
 }
 
 impl AlertManager {
+    #[allow(dead_code)]
     pub fn new(
         webhook_url: Option<String>,
         alert_threshold: SpikeSeverity,
@@ -60,7 +60,14 @@ impl AlertManager {
         .map(String::from)
         .collect();
 
-        Self::new_with_config(webhook_url, alert_threshold, network, default_types, 300)
+        Self::new_with_config(
+            webhook_url,
+            alert_threshold,
+            network,
+            repository,
+            default_types,
+            300,
+        )
     }
 
     /// Like `new`, but with explicit control over which alert types are
@@ -71,6 +78,7 @@ impl AlertManager {
         webhook_url: Option<String>,
         alert_threshold: SpikeSeverity,
         network: String,
+        repository: Option<Arc<FeeRepository>>,
         enabled_alert_types: HashSet<String>,
         stale_data_threshold_seconds: i64,
     ) -> Self {
@@ -81,13 +89,6 @@ impl AlertManager {
             network,
             seen_spikes: Arc::new(Mutex::new(HashSet::new())),
             repository,
-        }
-    }
-
-    /// Rehydrate the in-memory dedup set from recent alert_events in the DB
-    /// so that restarts do not immediately re-fire already-dispatched alerts.
-    pub async fn rehydrate_seen_spikes(&self) {
-        let Some(repo) = &self.repository else {
             enabled_alert_types: Arc::new(enabled_alert_types),
             stale_data_threshold_seconds,
             active_spike: Arc::new(Mutex::new(None)),
@@ -96,12 +97,10 @@ impl AlertManager {
         }
     }
 
-    fn type_enabled(&self, alert_type: &str) -> bool {
-        self.enabled_alert_types.contains(alert_type)
-    }
-
-    pub async fn check_and_dispatch(&self, update: &InsightsUpdate) {
-        let Some(delivery) = self.webhook_delivery.clone() else {
+    /// Rehydrate the in-memory dedup set from recent alert_events in the DB
+    /// so that restarts do not immediately re-fire already-dispatched alerts.
+    pub async fn rehydrate_seen_spikes(&self) {
+        let Some(repo) = &self.repository else {
             return;
         };
         let events = match repo.query_alert_history(200, None, None).await {
@@ -122,7 +121,15 @@ impl AlertManager {
         tracing::info!("Rehydrated {} seen spike IDs from alert_events", seen.len());
     }
 
+    fn type_enabled(&self, alert_type: &str) -> bool {
+        self.enabled_alert_types.contains(alert_type)
+    }
+
     pub async fn check_and_dispatch(&self, update: &InsightsUpdate) {
+        let Some(delivery) = self.webhook_delivery.clone() else {
+            return;
+        };
+
         // Load enabled alert configs from the DB so CRUD changes take effect
         // immediately. Falls back to the in-memory webhook delivery if no
         // repository is available (legacy single-URL mode).
@@ -163,12 +170,19 @@ impl AlertManager {
         // (Issue #556 edge case), and that re-enabling a type later
         // reflects real current conditions instead of replaying a stale
         // transition.
-        self.check_spike_and_recovery(update, &delivery).await;
+        self.check_spike_and_recovery(update, &delivery, &db_configs, use_legacy)
+            .await;
         self.check_good_window(update, &delivery).await;
         self.check_stale_data(update, &delivery).await;
     }
 
-    async fn check_spike_and_recovery(&self, update: &InsightsUpdate, delivery: &WebhookDelivery) {
+    async fn check_spike_and_recovery(
+        &self,
+        update: &InsightsUpdate,
+        delivery: &WebhookDelivery,
+        db_configs: &[(String, SpikeSeverity)],
+        use_legacy: bool,
+    ) {
         // Prune seen_spikes to spikes still present in this tick's window
         // — same bounding behavior as before Issue #556.
         let active_ids: HashSet<String> = update
@@ -191,25 +205,10 @@ impl AlertManager {
                 spike.peak_fee
             );
 
-            if use_legacy {
-                // Legacy mode: single webhook, single threshold
-                if !meets_threshold(&spike.severity, &self.alert_threshold) {
-                    continue;
-                }
-                let should_dispatch = {
-                    let mut seen = self.seen_spikes.lock().await;
-                    seen.insert(spike_id)
-                };
-                if !should_dispatch {
-                    continue;
-                }
-                if let Some(delivery) = self.webhook_delivery.clone() {
-                    self.dispatch_spike(delivery, spike).await;
-                }
-            } else {
+            if !use_legacy {
                 // DB-config mode: dispatch to every enabled webhook whose
                 // threshold this spike meets.
-                for (webhook_url, threshold) in &db_configs {
+                for (webhook_url, threshold) in db_configs {
                     if !meets_threshold(&spike.severity, threshold) {
                         continue;
                     }
@@ -226,51 +225,7 @@ impl AlertManager {
                 }
             }
         }
-    }
 
-    async fn dispatch_spike(&self, delivery: WebhookDelivery, spike: &crate::insights::FeeSpike) {
-        let payload = AlertPayload {
-            event: "fee_spike_detected".to_string(),
-            severity: severity_to_str(&spike.severity).to_string(),
-            peak_fee: spike.peak_fee,
-            baseline_fee: spike.baseline_fee,
-            spike_ratio: spike.spike_ratio,
-            start_time: spike.start_time,
-            duration_seconds: spike.duration.num_seconds().max(0),
-            network: self.network.clone(),
-            timestamp: Utc::now(),
-        };
-
-        let webhook_url = delivery.url().to_string();
-        let severity_str = severity_to_str(&spike.severity).to_string();
-        let delivery = delivery.clone();
-        let repository = self.repository.clone();
-        tokio::spawn(async move {
-            let delivered = match delivery.send_with_retry(&payload).await {
-                Ok(()) => true,
-                Err(err) => {
-                    tracing::error!("Webhook dispatch failed: {}", err);
-                    false
-                }
-            };
-
-            if let Some(repository) = repository {
-                let event = AlertEvent {
-                    id: None,
-                    config_id: None,
-                    severity: severity_str,
-                    peak_fee: payload.peak_fee as i64,
-                    baseline_fee: payload.baseline_fee,
-                    spike_ratio: payload.spike_ratio,
-                    webhook_url,
-                    delivered,
-                    triggered_at: Utc::now().to_rfc3339(),
-                };
-                if let Err(err) = repository.log_alert_event(&event).await {
-                    tracing::error!("Failed to log alert event: {}", err);
-                }
-            }
-        });
         // The single highest-severity spike meeting the threshold this
         // tick, if any. Using "highest qualifying spike" rather than
         // "every qualifying spike" is what gives us hysteresis: while a
@@ -374,6 +329,59 @@ impl AlertManager {
                 // Nothing active, nothing qualifying: steady state.
             }
         }
+    }
+
+    async fn dispatch_spike(&self, delivery: WebhookDelivery, spike: &crate::insights::FeeSpike) {
+        let spike_id = spike_identity(spike);
+        let payload = AlertPayload {
+            event: "fee_spike_detected".to_string(),
+            severity: Some(severity_to_str(&spike.severity).to_string()),
+            peak_fee: Some(spike.peak_fee),
+            baseline_fee: Some(spike.baseline_fee),
+            spike_ratio: Some(spike.spike_ratio),
+            start_time: Some(spike.start_time),
+            duration_seconds: Some(spike.duration.num_seconds().max(0)),
+            network: self.network.clone(),
+            timestamp: Utc::now(),
+            correlation_id: Some(spike_id.clone()),
+            congestion_trend: None,
+            trend_strength: None,
+            freshness_seconds: None,
+            staleness_threshold_seconds: None,
+        };
+
+        let webhook_url = delivery.url().to_string();
+        let severity_str = severity_to_str(&spike.severity).to_string();
+        let delivery = delivery.clone();
+        let repository = self.repository.clone();
+        tokio::spawn(async move {
+            let delivered = match delivery.send_with_retry(&payload).await {
+                Ok(()) => true,
+                Err(err) => {
+                    tracing::error!("Webhook dispatch failed: {}", err);
+                    false
+                }
+            };
+
+            if let Some(repository) = repository {
+                let event = AlertEvent {
+                    id: None,
+                    config_id: None,
+                    alert_type: ALERT_TYPE_SPIKE.to_string(),
+                    severity: severity_str,
+                    peak_fee: payload.peak_fee.map(|v| v as i64).unwrap_or(0),
+                    baseline_fee: payload.baseline_fee.unwrap_or(0.0),
+                    spike_ratio: payload.spike_ratio.unwrap_or(0.0),
+                    webhook_url,
+                    delivered,
+                    triggered_at: Utc::now().to_rfc3339(),
+                    correlation_id: payload.correlation_id,
+                };
+                if let Err(err) = repository.log_alert_event(&event).await {
+                    tracing::error!("Failed to log alert event: {}", err);
+                }
+            }
+        });
     }
 
     async fn check_good_window(&self, update: &InsightsUpdate, delivery: &WebhookDelivery) {
@@ -698,6 +706,7 @@ mod tests {
                     period_end: now,
                 },
                 congestion_trends: CongestionTrends {
+                    congestion_level: CongestionLevel::from(&trend),
                     current_trend: trend,
                     recent_spikes: spikes,
                     trend_strength,
@@ -758,6 +767,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
         );
 
         let t1 = DateTime::parse_from_rfc3339("2025-01-14T10:45:00Z")
@@ -799,6 +809,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
         );
 
         let t1 = DateTime::parse_from_rfc3339("2025-01-14T10:45:00Z")
@@ -834,6 +845,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
             all_types(),
             300,
         );
@@ -862,6 +874,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
             all_types(),
             300,
         );
@@ -885,6 +898,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
             all_types(),
             300,
         );
@@ -913,6 +927,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
             all_types(),
             300,
         );
@@ -946,6 +961,7 @@ mod tests {
             Some(format!("{}/hook", server.uri())),
             SpikeSeverity::Major,
             "mainnet".to_string(),
+            None,
             only_stale_data,
             300,
         );
