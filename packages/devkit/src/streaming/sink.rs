@@ -40,8 +40,9 @@ impl StdoutSink {
     /// Returns [`DevkitError::Simulation`] if `serde_json` fails to serialise
     /// the value (e.g. a map with non-string keys).
     pub fn emit<T: Serialize>(&self, event: &T) -> Result<(), DevkitError> {
-        let json = serde_json::to_string(event)
-            .map_err(|e| DevkitError::Simulation(format!("stdout sink serialisation error: {e}")))?;
+        let json = serde_json::to_string(event).map_err(|e| {
+            DevkitError::Simulation(format!("stdout sink serialisation error: {e}"))
+        })?;
         println!("{json}");
         Ok(())
     }
@@ -81,7 +82,11 @@ mod tests {
 
         let sink = StdoutSink::new();
         assert!(sink.emit(&SimpleEvent::LedgerClosed(42)).is_ok());
-        assert!(sink.emit(&SimpleEvent::NetworkConditionChanged("congested".to_string())).is_ok());
+        assert!(sink
+            .emit(&SimpleEvent::NetworkConditionChanged(
+                "congested".to_string()
+            ))
+            .is_ok());
     }
 
     /// Verifies that the serialised output round-trips correctly via
@@ -97,9 +102,9 @@ mod tests {
         assert_eq!(event, recovered);
     }
 
-    /// [`StdoutSink`] can be created via [`Default`].
+    /// [`StdoutSink`] is a unit struct; its `Default` is the struct itself.
     #[test]
     fn default_construction() {
-        let _sink: StdoutSink = StdoutSink::default();
+        let _sink: StdoutSink = StdoutSink;
     }
 }
