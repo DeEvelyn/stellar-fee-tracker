@@ -189,6 +189,7 @@ impl HorizonClient {
         let client = self.pool.get();
         let resp = client
             .get(&url)
+            .timeout(Duration::from_millis(self.timeout_ms))
             .send()
             .await
             .map_err(|e| DevkitError::Protocol(format!("network error: {e}")))?;
