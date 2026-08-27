@@ -86,14 +86,6 @@ impl FeeHistoryStore {
     pub fn clear(&mut self) {
         self.data.clear();
     }
-
-    /// Find a data point by transaction hash.
-    pub fn get_by_hash(&self, hash: &str) -> Option<FeeDataPoint> {
-        self.data
-            .iter()
-            .find(|p| p.transaction_hash == hash)
-            .cloned()
-    }
 }
 
 /// A point-in-time snapshot of Horizon's `/fee_stats` aggregate data

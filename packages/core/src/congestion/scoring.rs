@@ -19,6 +19,7 @@ pub enum CongestionLevel {
 }
 
 impl CongestionLevel {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             CongestionLevel::Low => "low",

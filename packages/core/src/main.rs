@@ -38,6 +38,7 @@ use crate::metrics::AppMetrics;
 use crate::middleware::auth::require_api_key;
 use crate::middleware::rate_limit::{enforce_rate_limit, RateLimitState};
 use crate::recommendation::engine::FeeRecommendationEngine;
+use crate::recommendation::types::RecommendationConfig;
 use crate::repository::FeeRepository;
 use crate::scheduler::run_fee_polling_with_retry;
 use crate::services::horizon::HorizonClient;
@@ -227,17 +228,9 @@ async fn main() {
     let recommendation_engine = FeeRecommendationEngine::new(
         fee_store.clone(),
         Some(insights_engine.clone()),
-        config.recommendation.clone(),
+        RecommendationConfig::default(),
     )
     .with_repository(repository.clone());
-    let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
-        engine: recommendation_engine,
-        metrics: Some(app_metrics.clone()),
-        repository: repository.clone(),
-    let recommendation_engine =
-        FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()))
-            .with_repository(repository.clone());
-        FeeRecommendationEngine::new(fee_store.clone(), Some(insights_engine.clone()));
     let recommendation_state = Arc::new(api::recommendation::RecommendationApiState {
         engine: recommendation_engine,
         metrics: Some(app_metrics.clone()),
