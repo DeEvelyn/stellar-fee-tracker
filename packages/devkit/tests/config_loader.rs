@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use stellar_devkit::config::DevkitConfig;
 
@@ -9,6 +10,11 @@ fn write_temp_toml(content: &str) -> tempfile::NamedTempFile {
     file.write_all(content.as_bytes())
         .expect("Failed to write TOML");
     file
+}
+
+fn env_guard() -> MutexGuard<'static, ()> {
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
 }
 
 // ─── from_toml_file tests ───────────────────────────────────────────────────
@@ -151,6 +157,7 @@ fn test_load_toml_positive_time_offset() {
 
 #[test]
 fn test_env_vars_override_defaults() {
+    let _env_guard = env_guard();
     // Use a scoped environment for this test
     std::env::set_var("DEVKIT_PORT", "9999");
     std::env::set_var("DEVKIT_SCENARIO", "stress");
@@ -173,6 +180,7 @@ fn test_env_vars_override_defaults() {
 
 #[test]
 fn test_env_db_path_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_DB_PATH", "/tmp/custom.db");
     let config = DevkitConfig::from_env();
     assert_eq!(config.db_path, PathBuf::from("/tmp/custom.db"));
@@ -181,6 +189,7 @@ fn test_env_db_path_override() {
 
 #[test]
 fn test_env_horizon_url_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_HORIZON_URL", "https://horizon.stellar.org");
     let config = DevkitConfig::from_env();
     assert_eq!(config.horizon_url, "https://horizon.stellar.org");
@@ -189,6 +198,7 @@ fn test_env_horizon_url_override() {
 
 #[test]
 fn test_env_retry_attempts_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_RETRY_ATTEMPTS", "7");
     let config = DevkitConfig::from_env();
     assert_eq!(config.retry_attempts, 7);
@@ -197,6 +207,7 @@ fn test_env_retry_attempts_override() {
 
 #[test]
 fn test_env_base_retry_delay_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_BASE_RETRY_DELAY_MS", "5000");
     let config = DevkitConfig::from_env();
     assert_eq!(config.base_retry_delay_ms, 5000);
@@ -205,6 +216,7 @@ fn test_env_base_retry_delay_override() {
 
 #[test]
 fn test_env_simulation_duration_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_SIMULATION_DURATION", "2000");
     let config = DevkitConfig::from_env();
     assert_eq!(config.simulation_duration, 2000);
@@ -213,6 +225,7 @@ fn test_env_simulation_duration_override() {
 
 #[test]
 fn test_env_simulation_base_fee_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_SIMULATION_BASE_FEE", "500");
     let config = DevkitConfig::from_env();
     assert_eq!(config.simulation_base_fee, 500);
@@ -221,6 +234,7 @@ fn test_env_simulation_base_fee_override() {
 
 #[test]
 fn test_env_simulation_spike_prob_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_SIMULATION_SPIKE_PROB", "0.25");
     let config = DevkitConfig::from_env();
     assert!((config.simulation_spike_prob - 0.25).abs() < 1e-9);
@@ -229,6 +243,7 @@ fn test_env_simulation_spike_prob_override() {
 
 #[test]
 fn test_env_sandbox_time_offset_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_SANDBOX_TIME_OFFSET_SECS", "-1800");
     let config = DevkitConfig::from_env();
     assert_eq!(config.sandbox_time_offset_secs, -1800);
@@ -237,6 +252,7 @@ fn test_env_sandbox_time_offset_override() {
 
 #[test]
 fn test_env_analysis_window_hours_override() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_ANALYSIS_WINDOW_HOURS", "72");
     let config = DevkitConfig::from_env();
     assert_eq!(config.analysis_window_hours, 72);
@@ -245,6 +261,7 @@ fn test_env_analysis_window_hours_override() {
 
 #[test]
 fn test_env_verbose_one_value() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_VERBOSE", "1");
     let config = DevkitConfig::from_env();
     assert!(config.verbose);
@@ -253,6 +270,7 @@ fn test_env_verbose_one_value() {
 
 #[test]
 fn test_env_verbose_false_value() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_VERBOSE", "false");
     let config = DevkitConfig::from_env();
     assert!(!config.verbose);
@@ -261,6 +279,7 @@ fn test_env_verbose_false_value() {
 
 #[test]
 fn test_env_invalid_port_falls_back_to_default() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_PORT", "not_a_number");
     let config = DevkitConfig::from_env();
     let defaults = DevkitConfig::default();
@@ -270,6 +289,7 @@ fn test_env_invalid_port_falls_back_to_default() {
 
 #[test]
 fn test_env_invalid_poll_interval_falls_back_to_default() {
+    let _env_guard = env_guard();
     std::env::set_var("DEVKIT_POLL_INTERVAL_SECS", "abc");
     let config = DevkitConfig::from_env();
     let defaults = DevkitConfig::default();
@@ -281,6 +301,7 @@ fn test_env_invalid_poll_interval_falls_back_to_default() {
 
 #[test]
 fn test_env_overrides_toml_values() {
+    let _env_guard = env_guard();
     let content = r#"
         port = 7000
         scenario = "normal"
@@ -311,6 +332,7 @@ fn test_env_overrides_toml_values() {
 
 #[test]
 fn test_env_not_set_does_not_change_toml_values() {
+    let _env_guard = env_guard();
     let content = r#"
         port = 7777
         horizon_url = "https://custom.horizon.org"
