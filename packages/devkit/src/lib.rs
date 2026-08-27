@@ -12,6 +12,7 @@ pub mod resilience;
 pub mod sandbox;
 pub mod simulation;
 pub mod storage;
+pub mod streaming;
 pub mod test_helpers;
 pub mod types;
 pub mod utilities;
