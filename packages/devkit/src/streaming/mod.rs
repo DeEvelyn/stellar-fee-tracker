@@ -20,7 +20,7 @@ pub mod transformer;
 
 pub use transformer::{FeeRecord, SpikeDetectionTransformer, SpikeTransformerEvent};
 
-use serde::{Deserialize, Serialize};
+use crate::analysis::spike_classifier::SpikeEvent;
 
 /// Events that flow through the streaming pipeline.
 ///

@@ -20,19 +20,11 @@ use crate::analysis::spike_classifier::{SpikeClassifier, SpikeEvent, SpikeSeveri
 // Minimal local event types (to be replaced when #610 merges)
 // ---------------------------------------------------------------------------
 
-/// Minimal fee-record type mirroring `storage::traits::FeeRecord`.
+/// Canonical fee-record type shared by the storage layer.
 ///
-/// **TODO (#610)**: replace with `use crate::storage::traits::FeeRecord;`
-/// once the shared streaming events module is available.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FeeRecord {
-    pub fee_amount: u64,
-    pub ledger_sequence: u64,
-    pub timestamp_ms: i64,
-    pub transaction_hash: Option<String>,
-    pub is_spike: bool,
-    pub created_at: String,
-}
+/// The transformer uses the canonical [`crate::storage::traits::FeeRecord`]
+/// (re-exported below) now that the shared streaming events landed in #610.
+pub use crate::storage::traits::FeeRecord;
 
 /// Local analogue of the canonical `FeeEvent` from issue #610.
 ///
