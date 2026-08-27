@@ -22,31 +22,130 @@ pub use transformer::{FeeRecord, SpikeDetectionTransformer, SpikeTransformerEven
 
 use serde::{Deserialize, Serialize};
 
-/// Placeholder `FeeEvent` enum for use until issue #610 merges.
+/// Events that flow through the streaming pipeline.
 ///
-/// **This type will be superseded** by the definition introduced in #610.
-/// It is kept minimal here to allow `sink.rs` to be exercised end-to-end
-/// without coupling to the concurrent PR.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+/// Each variant carries the minimal data needed for downstream processing:
+///
+/// - [`FeeEvent::NewFeeRecord`] — references [`FeeRecord`] directly (from
+///   `storage::traits`) so the streaming layer shares the canonical storage
+///   type without an extra copy struct.
+/// - [`FeeEvent::SpikeDetected`] — references [`SpikeEvent`] directly (from
+///   `analysis::spike_classifier`) to keep spike metadata co-located with the
+///   type that produced it.
+/// - [`FeeEvent::LedgerClosed`] — carries the ledger sequence number (`u64`)
+///   to signal ledger-boundary events without allocating.
+/// - [`FeeEvent::NetworkConditionChanged`] — carries a human-readable
+///   description of the condition change as a `String`.
+/// - [`FeeEvent::PipelineError`] — carries an error message string so the
+///   pipeline can propagate non-fatal errors without panicking.
+#[derive(Debug, Clone)]
 pub enum FeeEvent {
-    /// A new fee record was recorded for a ledger.
-    NewFeeRecord {
-        fee_amount: u64,
-        ledger_sequence: u64,
-        timestamp_ms: i64,
-        transaction_hash: Option<String>,
-        is_spike: bool,
-    },
-    /// A fee spike was detected.
-    SpikeDetected {
-        severity: String,
-        duration_ledgers: usize,
-    },
-    /// A ledger was closed at the given sequence number.
+    /// A new fee record has been observed on the network.
+    NewFeeRecord(FeeRecord),
+    /// A fee spike has been detected by the spike classifier.
+    SpikeDetected(SpikeEvent),
+    /// A ledger has closed; carries the ledger sequence number.
     LedgerClosed(u64),
-    /// The network condition description changed.
+    /// The network condition description has changed.
     NetworkConditionChanged(String),
-    /// A pipeline processing error occurred.
+    /// A non-fatal pipeline error has occurred.
     PipelineError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis::spike_classifier::{SpikeEvent, SpikeSeverity};
+    use crate::storage::traits::FeeRecord;
+
+    fn sample_fee_record() -> FeeRecord {
+        FeeRecord {
+            fee_amount: 100,
+            ledger_sequence: 42,
+            timestamp_ms: 1_700_000_000_000,
+            transaction_hash: Some("abc123".to_string()),
+            is_spike: false,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn sample_spike_event() -> SpikeEvent {
+        SpikeEvent {
+            severity: SpikeSeverity::High,
+            duration_ledgers: 3,
+        }
+    }
+
+    // ── Construction tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn new_fee_record_variant_constructs() {
+        let event = FeeEvent::NewFeeRecord(sample_fee_record());
+        assert!(matches!(event, FeeEvent::NewFeeRecord(_)));
+    }
+
+    #[test]
+    fn spike_detected_variant_constructs() {
+        let event = FeeEvent::SpikeDetected(sample_spike_event());
+        assert!(matches!(event, FeeEvent::SpikeDetected(_)));
+    }
+
+    #[test]
+    fn ledger_closed_variant_constructs() {
+        let event = FeeEvent::LedgerClosed(100);
+        assert!(matches!(event, FeeEvent::LedgerClosed(100)));
+    }
+
+    #[test]
+    fn network_condition_changed_variant_constructs() {
+        let event = FeeEvent::NetworkConditionChanged("high congestion".to_string());
+        assert!(matches!(event, FeeEvent::NetworkConditionChanged(_)));
+    }
+
+    #[test]
+    fn pipeline_error_variant_constructs() {
+        let event = FeeEvent::PipelineError("timeout".to_string());
+        assert!(matches!(event, FeeEvent::PipelineError(_)));
+    }
+
+    // ── Debug smoke tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn debug_new_fee_record_is_non_empty() {
+        let event = FeeEvent::NewFeeRecord(sample_fee_record());
+        assert!(!format!("{event:?}").is_empty());
+    }
+
+    #[test]
+    fn debug_spike_detected_is_non_empty() {
+        let event = FeeEvent::SpikeDetected(sample_spike_event());
+        assert!(!format!("{event:?}").is_empty());
+    }
+
+    #[test]
+    fn debug_ledger_closed_is_non_empty() {
+        let event = FeeEvent::LedgerClosed(999);
+        assert!(!format!("{event:?}").is_empty());
+    }
+
+    #[test]
+    fn debug_network_condition_changed_is_non_empty() {
+        let event = FeeEvent::NetworkConditionChanged("low throughput".to_string());
+        assert!(!format!("{event:?}").is_empty());
+    }
+
+    #[test]
+    fn debug_pipeline_error_is_non_empty() {
+        let event = FeeEvent::PipelineError("connection reset".to_string());
+        assert!(!format!("{event:?}").is_empty());
+    }
+
+    // ── Clone test ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn fee_event_is_clone() {
+        let original = FeeEvent::LedgerClosed(7);
+        let cloned = original.clone();
+        assert!(matches!(cloned, FeeEvent::LedgerClosed(7)));
+    }
 }
