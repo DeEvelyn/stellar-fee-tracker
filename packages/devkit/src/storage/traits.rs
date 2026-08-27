@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use super::query::QueryParams;
 use crate::error::DevkitError;
 
+#[derive(Debug, Clone)]
 pub struct FeeRecord {
     pub fee_amount: u64,
     pub ledger_sequence: u64,
