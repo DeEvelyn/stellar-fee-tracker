@@ -121,14 +121,17 @@ impl SpikeDetectionTransformer {
     ///
     /// * `baseline`  — the expected (normal) fee in stroops.
     /// * `threshold` — the multiplier above which a fee is considered a spike
-    ///                 (e.g. `2.0` = 2× the baseline).
+    ///   (e.g. `2.0` = 2× the baseline).
     ///
     /// # Panics
     ///
     /// Does not panic.  A `baseline` of `0` means spikes are never emitted
     /// (division by zero is avoided inside [`SpikeClassifier`]).
     pub fn new(baseline: u64, threshold: f64) -> Self {
-        Self { baseline, threshold }
+        Self {
+            baseline,
+            threshold,
+        }
     }
 
     /// Process a single [`FeeEvent`] and optionally emit a

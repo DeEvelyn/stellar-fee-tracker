@@ -18,7 +18,7 @@ pub use sink::StdoutSink;
 
 pub mod transformer;
 
-pub use transformer::{FeeRecord, SpikeTransformerEvent, SpikeDetectionTransformer};
+pub use transformer::{FeeRecord, SpikeDetectionTransformer, SpikeTransformerEvent};
 
 use serde::{Deserialize, Serialize};
 
